@@ -1,0 +1,149 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------- */
+/* JARVIS design tokens                                                    */
+/* Single dark theme — this is not a light/dark-togglable consumer app,    */
+/* the dark palette below IS the product's identity.                      */
+/* ---------------------------------------------------------------------- */
+
+:root {
+  /* Surfaces */
+  --jarvis-bg: #07090c;
+  --jarvis-surface-1: #0b0e12;
+  --jarvis-surface-2: #0f1318;
+  --jarvis-surface-3: #12171d;
+  --jarvis-glass: rgba(13, 17, 22, 0.78);
+
+  /* Borders */
+  --jarvis-border: rgba(255, 255, 255, 0.07);
+  --jarvis-border-strong: rgba(255, 255, 255, 0.13);
+
+  /* Text */
+  --jarvis-text: #eceff3;
+  --jarvis-text-muted: #8b95a3;
+  --jarvis-text-dim: #576073;
+
+  /* Accent */
+  --jarvis-cyan: #67d9ff;
+  --jarvis-cyan-foreground: #05161c;
+  --jarvis-violet: #8aa4ff;
+
+  /* Status (muted, functional — not decorative) */
+  --jarvis-status-active: #67d9ff;
+  --jarvis-status-success: #7bc99a;
+  --jarvis-status-warning: #e0aa5e;
+  --jarvis-status-error: #d9756b;
+  --jarvis-status-waiting: #a99be0;
+  --jarvis-status-idle: #6b7280;
+
+  --radius: 0.5rem;
+
+  /* shadcn semantic tokens, mapped onto the JARVIS palette */
+  --background: var(--jarvis-bg);
+  --foreground: var(--jarvis-text);
+  --card: var(--jarvis-surface-1);
+  --card-foreground: var(--jarvis-text);
+  --popover: var(--jarvis-surface-3);
+  --popover-foreground: var(--jarvis-text);
+  --primary: var(--jarvis-cyan);
+  --primary-foreground: var(--jarvis-cyan-foreground);
+  --secondary: var(--jarvis-surface-2);
+  --secondary-foreground: var(--jarvis-text);
+  --muted: var(--jarvis-surface-2);
+  --muted-foreground: var(--jarvis-text-muted);
+  --accent: var(--jarvis-surface-3);
+  --accent-foreground: var(--jarvis-text);
+  --destructive: var(--jarvis-status-error);
+  --border: var(--jarvis-border);
+  --input: var(--jarvis-border-strong);
+  --ring: var(--jarvis-cyan);
+  --chart-1: var(--jarvis-cyan);
+  --chart-2: var(--jarvis-violet);
+  --chart-3: var(--jarvis-status-success);
+  --chart-4: var(--jarvis-status-warning);
+  --chart-5: var(--jarvis-status-error);
+  --sidebar: var(--jarvis-bg);
+  --sidebar-foreground: var(--jarvis-text);
+  --sidebar-primary: var(--jarvis-cyan);
+  --sidebar-primary-foreground: var(--jarvis-cyan-foreground);
+  --sidebar-accent: var(--jarvis-surface-3);
+  --sidebar-accent-foreground: var(--jarvis-text);
+  --sidebar-border: var(--jarvis-border);
+  --sidebar-ring: var(--jarvis-cyan);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-heading: var(--font-sans);
+
+  --color-surface-1: var(--jarvis-surface-1);
+  --color-surface-2: var(--jarvis-surface-2);
+  --color-surface-3: var(--jarvis-surface-3);
+  --color-glass: var(--jarvis-glass);
+  --color-border-strong: var(--jarvis-border-strong);
+  --color-text-dim: var(--jarvis-text-dim);
+  --color-accent-cyan: var(--jarvis-cyan);
+  --color-accent-violet: var(--jarvis-violet);
+  --color-status-active: var(--jarvis-status-active);
+  --color-status-success: var(--jarvis-status-success);
+  --color-status-warning: var(--jarvis-status-warning);
+  --color-status-error: var(--jarvis-status-error);
+  --color-status-waiting: var(--jarvis-status-waiting);
+  --color-status-idle: var(--jarvis-status-idle);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
