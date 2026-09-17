@@ -3,23 +3,11 @@
 import Image from "next/image";
 import { Headphones, Music2, Pause, Play, SkipBack, SkipForward, Volume2 } from "lucide-react";
 import { Panel, PanelBody, PanelHeader } from "@/components/primitives/panel";
+import { Skeleton } from "@/components/primitives/skeleton";
 import { useSpotifyPlayer } from "@/lib/spotify/use-spotify-player";
 import { formatDuration } from "@/lib/format";
+import { sliderTrackClasses as sliderClasses, sliderFillStyle } from "@/lib/slider-styles";
 import { cn } from "@/lib/utils";
-
-const sliderClasses =
-  "h-1 flex-1 cursor-pointer appearance-none rounded-full " +
-  "[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full " +
-  "[&::-webkit-slider-thumb]:mt-[-5px] [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none " +
-  "[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-cyan [&::-webkit-slider-thumb]:shadow-[0_0_0_2px_var(--jarvis-surface-1)] " +
-  "[&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full " +
-  "[&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-accent-cyan";
-
-function sliderFillStyle(percent: number): React.CSSProperties {
-  return {
-    background: `linear-gradient(to right, var(--jarvis-cyan) ${percent}%, var(--jarvis-surface-2) ${percent}%)`,
-  };
-}
 
 function HeaderIcon() {
   return (
@@ -36,8 +24,15 @@ export function NowPlayingPanel({ className }: { className?: string }) {
     return (
       <Panel className={className}>
         <PanelHeader icon={<HeaderIcon />} title="Now Playing" />
-        <PanelBody className="flex items-center justify-center">
-          <p className="text-xs text-muted-foreground">Loading…</p>
+        <PanelBody className="flex flex-col pt-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-12 shrink-0 rounded-md" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          </div>
+          <Skeleton className="mt-3 h-1 w-full rounded-full" />
         </PanelBody>
       </Panel>
     );

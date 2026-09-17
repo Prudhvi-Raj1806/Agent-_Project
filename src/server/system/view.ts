@@ -1,4 +1,4 @@
-import { getSystemSnapshot } from "./service";
+import { getSystemDetailSnapshot, getSystemSnapshot, type SystemDetailSnapshot } from "./service";
 import { formatUptime } from "@/lib/format";
 import type { SystemStatus as UiSystemStatus } from "@/lib/data/types";
 
@@ -16,4 +16,14 @@ export async function getUiSystemStatus(): Promise<UiSystemStatus> {
     networkDownMbps: snap.networkDownMbps,
     networkUpMbps: snap.networkUpMbps,
   };
+}
+
+export interface UiSystemDetail extends Omit<SystemDetailSnapshot, "uptimeSeconds"> {
+  uptime: string;
+}
+
+/** Backs the dedicated System page — the full monitor, not the four-number summary. */
+export async function getUiSystemDetail(): Promise<UiSystemDetail> {
+  const { uptimeSeconds, ...rest } = await getSystemDetailSnapshot();
+  return { ...rest, uptime: formatUptime(uptimeSeconds) };
 }

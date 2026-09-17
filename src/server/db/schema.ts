@@ -146,6 +146,17 @@ CREATE TABLE IF NOT EXISTS spotify_auth (
   updated_at TEXT NOT NULL
 );
 
+-- Single-row table (id is always 'default') — the voice passcode gating risky
+-- Quick Actions, set from the Settings page. Only a salted hash is stored,
+-- never the phrase itself. Falls back to JARVIS_VOICE_PASSCODE (env var) when
+-- empty, so existing .env.local-only setups keep working unchanged.
+CREATE TABLE IF NOT EXISTS voice_config (
+  id TEXT PRIMARY KEY,
+  passcode_hash TEXT NOT NULL,
+  passcode_salt TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,
   actor_id TEXT NOT NULL,

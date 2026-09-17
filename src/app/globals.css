@@ -146,4 +146,17 @@
   html {
     @apply font-sans;
   }
+  /* Consistent, visible keyboard-focus ring on every plain interactive
+     element (the many hand-rolled <button>/<a> in panel components don't go
+     through shadcn's Button, so they'd otherwise get no focus indicator at
+     all). Mouse users never see this — :focus-visible only fires for
+     keyboard/programmatic focus. */
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  [tabindex]:not([tabindex="-1"]) {
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-cyan/70;
+  }
 }

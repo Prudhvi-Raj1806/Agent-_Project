@@ -159,6 +159,33 @@ async function controlComputer(): Promise<ActionRunResult> {
   }
 }
 
+/**
+ * Inspired by a completely separate "clap → welcome routine" Python script
+ * the user pointed at (github.com/hectorg2211/jarvis) — opens the apps a
+ * real Hermes/Spotify session run this way. Speaking the greeting and
+ * resuming Spotify playback happen client-side (this only launches apps a
+ * server action can reach) — see use-clap-detector.ts's caller.
+ */
+async function welcomeRoutine(): Promise<ActionRunResult> {
+  const opened: string[] = [];
+  try {
+    await execFileAsync("cmd", ["/c", "code", "."], { cwd: process.cwd() });
+    opened.push("VS Code");
+  } catch {
+    // best-effort — not installed/on PATH is fine, other steps still run
+  }
+  try {
+    await execFileAsync("cmd", ["/c", "start", "", "http://localhost:3000"]);
+    opened.push("your browser");
+  } catch {
+    // best-effort
+  }
+  if (opened.length === 0) {
+    return { ok: false, message: "Couldn't open anything for the welcome routine." };
+  }
+  return { ok: true, message: `Welcome routine ran — opened ${opened.join(" and ")}.` };
+}
+
 function withLogging(id: string, run: () => Promise<ActionRunResult>): () => Promise<ActionRunResult> {
   return async () => {
     const result = await run();
@@ -193,6 +220,12 @@ export const ACTION_REGISTRY: Record<string, ActionDefinition> = {
     label: "Control Computer",
     risk: "risky",
     run: withLogging("control-computer", controlComputer),
+  },
+  "welcome-routine": {
+    id: "welcome-routine",
+    label: "Welcome Routine",
+    risk: "safe",
+    run: withLogging("welcome-routine", welcomeRoutine),
   },
 };
 

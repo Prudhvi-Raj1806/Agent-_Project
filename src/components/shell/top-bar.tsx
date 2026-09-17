@@ -2,11 +2,39 @@
 
 import { useEffect, useState } from "react";
 import { CommandBar } from "@/components/primitives/command-bar";
+import { PresenceRing } from "@/components/primitives/presence-ring";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { WeatherChip } from "@/components/shell/weather-chip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useClapWake } from "@/lib/clap/clap-detector-context";
 import type { WeatherStatus } from "@/lib/data/types";
 import { formatClock, formatDayDate } from "@/lib/format";
 import { useClock } from "@/lib/use-clock";
+
+function ClapWakeIndicator() {
+  const { enabled, status } = useClapWake();
+  if (!enabled) return null;
+
+  const label =
+    status === "listening"
+      ? "Listening for your double-clap"
+      : status === "denied"
+        ? "Clap wake — microphone access denied"
+        : status === "unsupported"
+          ? "Clap wake — not supported in this browser"
+          : "Clap wake — starting…";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">
+          <PresenceRing size="sm" active={status === "listening"} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function TopBar() {
   const now = useClock();
@@ -35,6 +63,7 @@ export function TopBar() {
         </span>
       </div>
       <WeatherChip weather={weather} />
+      <ClapWakeIndicator />
       <NotificationBell />
     </header>
   );

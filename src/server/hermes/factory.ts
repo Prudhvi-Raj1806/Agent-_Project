@@ -20,3 +20,10 @@ export function getHermesAdapter(): HermesAdapter {
 }
 
 export type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesResult } from "./types";
+
+/** Boolean presence check only, for the Settings page — never reads the key values. */
+export function getHermesConnectionInfo(): { mode: "agent" | "http" | "mock" } {
+  if (process.env.HERMES_AGENT_URL && process.env.HERMES_AGENT_API_KEY) return { mode: "agent" };
+  if (process.env.HERMES_API_URL) return { mode: "http" };
+  return { mode: "mock" };
+}

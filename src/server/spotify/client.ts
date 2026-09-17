@@ -106,3 +106,7 @@ export async function setVolume(percent: number): Promise<void> {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
   assertPlaybackOk(await spotifyFetch(`/me/player/volume?volume_percent=${clamped}`, { method: "PUT" }));
 }
+export async function seek(positionMs: number): Promise<void> {
+  const clamped = Math.max(0, Math.round(positionMs));
+  assertPlaybackOk(await spotifyFetch(`/me/player/seek?position_ms=${clamped}`, { method: "PUT" }));
+}

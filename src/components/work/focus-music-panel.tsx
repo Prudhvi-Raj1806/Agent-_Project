@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Music2, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { Panel, PanelBody, PanelHeader } from "@/components/primitives/panel";
+import { Skeleton } from "@/components/primitives/skeleton";
 import { useSpotifyPlayer } from "@/lib/spotify/use-spotify-player";
 import { formatDuration } from "@/lib/format";
 
@@ -32,6 +33,24 @@ function Header() {
 export function FocusMusicPanel({ className }: { className?: string }) {
   const { status, nowPlaying, play, pause, next, previous } = useSpotifyPlayer();
 
+  if (status === "loading") {
+    return (
+      <Panel className={className}>
+        <Header />
+        <PanelBody className="flex flex-col justify-center py-2">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-10 shrink-0 rounded-md" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-3 w-3/4" />
+              <Skeleton className="h-2.5 w-1/2" />
+            </div>
+          </div>
+          <Skeleton className="mt-2 h-1 w-full rounded-full" />
+        </PanelBody>
+      </Panel>
+    );
+  }
+
   if (status !== "connected" || !nowPlaying?.track) {
     return (
       <Panel className={className}>
@@ -45,8 +64,6 @@ export function FocusMusicPanel({ className }: { className?: string }) {
               </a>
             ) : status === "not-configured" ? (
               "Spotify isn't set up yet."
-            ) : status === "loading" ? (
-              "Loading…"
             ) : (
               "Nothing playing right now."
             )}

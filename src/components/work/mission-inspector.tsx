@@ -11,10 +11,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { ConfirmDialog } from "@/components/primitives/confirm-dialog";
 import { ProgressBar } from "@/components/primitives/progress-bar";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import type { StatusTone } from "@/lib/data/types";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/lib/use-confirm";
 import type { Mission as BackendMission } from "@/server/missions/types";
 import type { EventType, JarvisEvent } from "@/server/events/types";
 
@@ -161,6 +163,7 @@ export function MissionInspector({
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [trackedId, setTrackedId] = useState<string | null>(null);
+  const { confirm, dialogProps } = useConfirm();
 
   // Reset during render (not in an effect) when a new mission is opened.
   if (missionId !== trackedId) {
@@ -238,6 +241,7 @@ export function MissionInspector({
     | undefined;
 
   return (
+    <>
     <Sheet open={missionId !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="flex w-full flex-col gap-0 sm:max-w-md">
         {mission ? (
@@ -410,7 +414,14 @@ export function MissionInspector({
                     variant="destructive"
                     size="sm"
                     disabled={actionPending}
-                    onClick={() => runAction("cancel")}
+                    onClick={() =>
+                      confirm({
+                        title: "Cancel this mission?",
+                        description: "This stops the mission for good — it can't be resumed afterward.",
+                        confirmLabel: "Cancel mission",
+                        onConfirm: () => runAction("cancel"),
+                      })
+                    }
                   >
                     <Square className="size-3.5" />
                     Cancel
@@ -426,5 +437,7 @@ export function MissionInspector({
         )}
       </SheetContent>
     </Sheet>
+    <ConfirmDialog {...dialogProps} />
+    </>
   );
 }

@@ -59,3 +59,9 @@ export function listUpcomingScheduleItems(): ScheduleItem[] {
 export function removeScheduleItem(id: string): void {
   deleteScheduleItem(id);
 }
+
+/** Everything, past and future — backs the dedicated Calendar page's full agenda. */
+export function listAllScheduleItems(): ScheduleItem[] {
+  seedIfEmpty();
+  return listScheduleItems();
+}

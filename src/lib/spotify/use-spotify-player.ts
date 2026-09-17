@@ -96,5 +96,6 @@ export function useSpotifyPlayer() {
     next: () => runAction("next"),
     previous: () => runAction("previous"),
     setVolume: (percent: number) => runAction("volume", { percent }),
+    seek: (positionMs: number) => runAction("seek", { positionMs }),
   };
 }
