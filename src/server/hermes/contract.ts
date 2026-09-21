@@ -58,11 +58,18 @@ export type HermesToolEventFrame =
   | (HermesToolFrameBase & { type: "tool.completed"; output?: unknown })
   | (HermesToolFrameBase & { type: "tool.failed"; error: string });
 
+/** Real token usage for a completed run. Only present when the backend actually reports it — never fabricated. */
+export interface HermesUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 export type HermesStreamFrame =
   | { type: "progress"; percent: number; note: string }
   | HermesToolRequestFrame
   | HermesToolEventFrame
-  | { type: "result"; success: boolean; summary: string; output: string }
+  | { type: "result"; success: boolean; summary: string; output: string; usage?: HermesUsage }
   | { type: "error"; message: string; retryable: boolean };
 
 /** JARVIS's answer to a `tool.requested` frame, POSTed to the tool-decisions endpoint. */

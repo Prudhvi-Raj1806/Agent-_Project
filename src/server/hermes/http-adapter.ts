@@ -173,7 +173,13 @@ export class HermesHttpAdapter implements HermesAdapter {
           callbacks.onToolEvent?.(parsed);
           break;
         case "result":
-          return { success: parsed.success, summary: parsed.summary, output: parsed.output, source: "hermes" };
+          return {
+            success: parsed.success,
+            summary: parsed.summary,
+            output: parsed.output,
+            source: "hermes",
+            ...(parsed.usage ? { usage: parsed.usage } : {}),
+          };
         case "error":
           throw new HermesError("RUNTIME", parsed.message, { retryable: parsed.retryable });
         default:

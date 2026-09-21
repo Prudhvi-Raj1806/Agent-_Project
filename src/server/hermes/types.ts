@@ -1,5 +1,5 @@
 import type { RoutingDecision } from "@/server/omnirouter/types";
-import type { HermesHealth, HermesToolDecisionRequest, HermesToolEventFrame, HermesToolRequestFrame } from "./contract";
+import type { HermesHealth, HermesToolDecisionRequest, HermesToolEventFrame, HermesToolRequestFrame, HermesUsage } from "./contract";
 
 export type HermesToolEvent = HermesToolEventFrame;
 export type HermesToolRequest = Omit<HermesToolRequestFrame, "type">;
@@ -34,6 +34,8 @@ export interface HermesResult {
   summary: string;
   output: string;
   source: "mock" | "hermes";
+  /** Real token usage, only when the backend actually reports it (today: HermesAgentAdapter only). Undefined, never fabricated as zero, when unknown. */
+  usage?: HermesUsage;
 }
 
 /**
@@ -47,4 +49,4 @@ export interface HermesAdapter {
   checkHealth(): Promise<HermesHealth>;
 }
 
-export type { HermesHealth } from "./contract";
+export type { HermesHealth, HermesUsage } from "./contract";

@@ -31,6 +31,7 @@ function baseInput(overrides: Partial<HermesExecuteInput> = {}): HermesExecuteIn
 
 type FixtureBehavior =
   | "success"
+  | "success-with-usage"
   | "tool-events"
   | "tool-approval-gate"
   | "runtime-error"
@@ -130,6 +131,18 @@ function createFixtureServer(behavior: FixtureBehavior) {
         });
         return;
       }
+      if (behavior === "success-with-usage") {
+        send({ type: "progress", percent: 50, note: "working" });
+        send({
+          type: "result",
+          success: true,
+          summary: "done",
+          output: "the real output",
+          usage: { inputTokens: 120, outputTokens: 340, totalTokens: 460 },
+        });
+        res.end();
+        return;
+      }
       // "success" / "flaky-then-success"
       send({ type: "progress", percent: 50, note: "working" });
       send({ type: "result", success: true, summary: "done", output: "the real output" });
@@ -198,6 +211,30 @@ describe("HermesHttpAdapter (against a local fixture server standing in for Herm
     expect(result.success).toBe(true);
     expect(result.output).toBe("the real output");
     expect(progress).toEqual([50]);
+  });
+
+  it("passes through real usage figures when the result frame reports them, and omits usage entirely when it doesn't", async () => {
+    server = createFixtureServer("success-with-usage").server;
+    const baseUrl = await listen(server);
+    const adapter = new HermesHttpAdapter(baseUrl);
+
+    const result = await adapter.execute(baseInput(), {
+      signal: new AbortController().signal,
+      onProgress: () => {},
+    });
+
+    expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 340, totalTokens: 460 });
+
+    // The plain "success" fixture never sends a usage field — must stay undefined, not a fabricated zero.
+    const plainServer = createFixtureServer("success").server;
+    const plainBaseUrl = await listen(plainServer);
+    const plainAdapter = new HermesHttpAdapter(plainBaseUrl);
+    const plainResult = await plainAdapter.execute(baseInput(), {
+      signal: new AbortController().signal,
+      onProgress: () => {},
+    });
+    expect(plainResult.usage).toBeUndefined();
+    await new Promise((resolve) => plainServer.close(resolve));
   });
 
   it("forwards tool events through onToolEvent", async () => {

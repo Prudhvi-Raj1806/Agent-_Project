@@ -4,8 +4,15 @@ import si from "systeminformation";
  * Real local machine telemetry via `systeminformation`. Every field is
  * genuinely measured — when a signal isn't exposed on this machine (e.g. no
  * GPU-load driver, no temperature sensor), the field is `null` rather than
- * a fabricated number. Network throughput needs two samples to compute a
- * rate, so this call has a short built-in warmup delay.
+ * a fabricated number.
+ *
+ * Performance note: several `systeminformation` calls (`graphics`,
+ * `networkStats`, `osInfo`, `battery`, `cpuTemperature`) are genuinely slow
+ * on Windows (measured 1-4s each, some backed by WMI queries that spawn a
+ * child process) — a cold, uncached snapshot can take 8-20s. Every snapshot
+ * is therefore cached with a short TTL and in-flight calls are shared, so
+ * concurrent requests (a page load racing a poll, two open tabs) never
+ * trigger more than one real `systeminformation` pass at a time.
  */
 export interface SystemSnapshot {
   cpuPercent: number | null;
@@ -22,26 +29,64 @@ function round(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// networkStats() only yields a real rx_sec/tx_sec once systeminformation has
+// a prior sample to diff against — rather than blocking every request on an
+// extra call + artificial sleep to manufacture that second sample, this
+// reuses the natural spacing between our own cached snapshots as the delay.
+// The very first snapshot taken by EITHER getSystemSnapshot or
+// getSystemDetailSnapshot in this process reports null network throughput
+// (honest "not yet measurable"), and every snapshot after that is accurate.
+let networkWarmed = false;
+
+/** Returns true once (across the whole process), then false forever after. */
+function consumeFirstSampleFlag(): boolean {
+  if (networkWarmed) return false;
+  networkWarmed = true;
+  return true;
 }
 
-export async function getSystemSnapshot(): Promise<SystemSnapshot> {
-  const [load, mem, fsSize, graphics, time, temp] = await Promise.all([
+async function sampleNetwork(): Promise<{ downMbps: number | null; upMbps: number | null }> {
+  const netStats = await si.networkStats();
+  const primary = netStats.find((n) => (n.rx_sec ?? 0) > 0 || (n.tx_sec ?? 0) > 0) ?? netStats[0];
+  if (consumeFirstSampleFlag()) return { downMbps: null, upMbps: null };
+  return {
+    downMbps: primary ? round((primary.rx_sec * 8) / 1_000_000) : null,
+    upMbps: primary ? round((primary.tx_sec * 8) / 1_000_000) : null,
+  };
+}
+
+/** Shares one in-flight computation across concurrent callers and caches the result for `ttlMs`. */
+function cached<T>(ttlMs: number) {
+  let entry: { value: T; expiresAt: number } | null = null;
+  let inFlight: Promise<T> | null = null;
+  return (compute: () => Promise<T>): Promise<T> => {
+    if (entry && Date.now() < entry.expiresAt) return Promise.resolve(entry.value);
+    if (inFlight) return inFlight;
+    inFlight = compute()
+      .then((value) => {
+        entry = { value, expiresAt: Date.now() + ttlMs };
+        return value;
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+    return inFlight;
+  };
+}
+
+const SNAPSHOT_TTL_MS = 5_000;
+const withSnapshotCache = cached<SystemSnapshot>(SNAPSHOT_TTL_MS);
+
+async function computeSystemSnapshot(): Promise<SystemSnapshot> {
+  const [load, mem, fsSize, graphics, time, temp, network] = await Promise.all([
     si.currentLoad(),
     si.mem(),
     si.fsSize(),
     si.graphics(),
     si.time(),
     si.cpuTemperature(),
+    sampleNetwork(),
   ]);
-
-  // First call establishes a baseline; the real rate needs a second sample after a short delay.
-  await si.networkStats();
-  await sleep(200);
-  const netStats = await si.networkStats();
-  const primaryNet =
-    netStats.find((n) => (n.rx_sec ?? 0) > 0 || (n.tx_sec ?? 0) > 0) ?? netStats[0];
 
   const primaryDisk = fsSize.reduce<(typeof fsSize)[number] | undefined>(
     (largest, d) => (d.size > (largest?.size ?? 0) ? d : largest),
@@ -56,9 +101,13 @@ export async function getSystemSnapshot(): Promise<SystemSnapshot> {
     diskPercent: round(primaryDisk?.use),
     temperatureC: round(temp.main),
     uptimeSeconds: time.uptime,
-    networkDownMbps: primaryNet ? round((primaryNet.rx_sec * 8) / 1_000_000) : null,
-    networkUpMbps: primaryNet ? round((primaryNet.tx_sec * 8) / 1_000_000) : null,
+    networkDownMbps: network.downMbps,
+    networkUpMbps: network.upMbps,
   };
+}
+
+export function getSystemSnapshot(): Promise<SystemSnapshot> {
+  return withSnapshotCache(computeSystemSnapshot);
 }
 
 /** The richer snapshot behind the dedicated System page — every filesystem and
@@ -88,8 +137,11 @@ function toGB(bytes: number | undefined): number {
   return typeof bytes === "number" && Number.isFinite(bytes) ? Math.round((bytes / 1_073_741_824) * 10) / 10 : 0;
 }
 
-export async function getSystemDetailSnapshot(): Promise<SystemDetailSnapshot> {
-  const [load, mem, fsSize, graphics, time, temp, osInfo, battery] = await Promise.all([
+const DETAIL_TTL_MS = 5_000;
+const withDetailCache = cached<SystemDetailSnapshot>(DETAIL_TTL_MS);
+
+async function computeSystemDetailSnapshot(): Promise<SystemDetailSnapshot> {
+  const [load, mem, fsSize, graphics, time, temp, osInfo, battery, netStats] = await Promise.all([
     si.currentLoad(),
     si.mem(),
     si.fsSize(),
@@ -98,12 +150,11 @@ export async function getSystemDetailSnapshot(): Promise<SystemDetailSnapshot> {
     si.cpuTemperature(),
     si.osInfo(),
     si.battery(),
+    si.networkStats(),
   ]);
 
-  await si.networkStats();
-  await sleep(200);
-  const netStats = await si.networkStats();
   const gpu = graphics.controllers[0];
+  const networkIsWarm = !consumeFirstSampleFlag();
 
   return {
     cpu: {
@@ -129,8 +180,8 @@ export async function getSystemDetailSnapshot(): Promise<SystemDetailSnapshot> {
       })),
     network: netStats.map((iface) => ({
       iface: iface.iface,
-      downMbps: round((iface.rx_sec * 8) / 1_000_000),
-      upMbps: round((iface.tx_sec * 8) / 1_000_000),
+      downMbps: networkIsWarm ? round((iface.rx_sec * 8) / 1_000_000) : null,
+      upMbps: networkIsWarm ? round((iface.tx_sec * 8) / 1_000_000) : null,
     })),
     os: {
       platform: osInfo.platform,
@@ -143,4 +194,8 @@ export async function getSystemDetailSnapshot(): Promise<SystemDetailSnapshot> {
     temperatureC: round(temp.main),
     uptimeSeconds: time.uptime,
   };
+}
+
+export function getSystemDetailSnapshot(): Promise<SystemDetailSnapshot> {
+  return withDetailCache(computeSystemDetailSnapshot);
 }

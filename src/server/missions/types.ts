@@ -17,6 +17,10 @@ export interface MissionBudget {
   maxUsd?: number;
   maxTokens?: number;
   maxSteps?: number;
+  /** Total tool-call attempts allowed across the mission's lifetime (all decisions, not just ALLOWed ones). */
+  maxToolCalls?: number;
+  /** Consecutive identical tool calls (same tool name + same input) allowed before treating it as a stuck loop. */
+  maxRepeatedToolCalls?: number;
 }
 
 export interface MissionAgentAssignment {

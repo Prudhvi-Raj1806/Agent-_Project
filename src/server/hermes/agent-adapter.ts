@@ -1,8 +1,23 @@
 import { logger } from "@/server/logging/logger";
-import type { HermesHealth } from "./contract";
+import type { HermesHealth, HermesUsage } from "./contract";
 import { HermesError } from "./errors";
 import { parseSseStream } from "./sse";
 import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesResult } from "./types";
+
+/**
+ * Hermes Agent's `run.completed` event carries a real `usage` object —
+ * `{input_tokens, output_tokens, total_tokens}` — verified against its own
+ * source (api_server_runs.py `_USAGE_FIELDS`). Returns undefined (not a
+ * fabricated zero) for anything that doesn't match that exact shape.
+ */
+function parseAgentUsage(usage: unknown): HermesUsage | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const u = usage as Record<string, unknown>;
+  if (typeof u.input_tokens !== "number" || typeof u.output_tokens !== "number" || typeof u.total_tokens !== "number") {
+    return undefined;
+  }
+  return { inputTokens: u.input_tokens, outputTokens: u.output_tokens, totalTokens: u.total_tokens };
+}
 
 /**
  * Adapter for a real, locally-running Hermes Agent
@@ -144,13 +159,16 @@ export class HermesAgentAdapter implements HermesAdapter {
           await this.sendApproval(runId, requestId, decision.decision === "allow" ? "once" : "deny");
           break;
         }
-        case "run.completed":
+        case "run.completed": {
+          const usage = parseAgentUsage(event.usage);
           return {
             success: true,
             summary: "Hermes Agent run completed",
             output: typeof event.output === "string" ? event.output : "",
             source: "hermes",
+            ...(usage ? { usage } : {}),
           };
+        }
         case "run.failed":
           throw new HermesError("RUNTIME", typeof event.error === "string" ? event.error : "Hermes Agent run failed", {
             retryable: false,

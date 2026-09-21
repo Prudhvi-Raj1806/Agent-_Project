@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDbForTests } from "@/server/db/client";
 import { listEventsForMission, subscribe } from "@/server/events/service";
 import { getOwnerActor } from "@/server/security/policy";
+import { listMissionCheckpoints } from "./checkpoints/service";
 import { startMission } from "./orchestrator";
 import { createMission, getMission } from "./service";
+import { listMissionTasks } from "./tasks/service";
 
 function waitForMissionTerminal(missionId: string, timeoutMs = 5000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -42,6 +44,11 @@ describe("mission orchestrator (end-to-end vertical slice)", () => {
     expect(finished.progress).toBe(100);
     expect(finished.result?.source).toBe("mock");
     expect(finished.verification?.verdict).toBe("PASS");
+
+    const tasks = listMissionTasks(mission.id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe(mission.objective);
+    expect(tasks[0].status).toBe("completed");
   });
 
   it("fails the mission (not silently) when no provider is available", async () => {
@@ -52,6 +59,31 @@ describe("mission orchestrator (end-to-end vertical slice)", () => {
     await done;
 
     expect(getMission(mission.id)!.status).toBe("FAILED");
+    expect(listMissionTasks(mission.id)[0].status).toBe("failed");
+  });
+
+  it("fails the mission (not silently) when it exceeds its step budget", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    // The mock adapter reports exactly 3 progress steps; a budget of 2 must
+    // stop it on the 3rd, before it ever reaches 100%.
+    const mission = createMission(
+      { objective: "Do a long multi-step task", budget: { maxSteps: 2 } },
+      getOwnerActor()
+    );
+
+    const done = waitForMissionTerminal(mission.id);
+    startMission(mission.id);
+    await done;
+
+    const finished = getMission(mission.id)!;
+    expect(finished.status).toBe("FAILED");
+    expect(finished.progress).toBeLessThan(100);
+
+    const types = listEventsForMission(mission.id).map((e) => e.type);
+    expect(types).toContain("mission.budget_exceeded");
+    expect(types).toContain("mission.failed");
+
+    expect(listMissionTasks(mission.id)[0].status).toBe("failed");
   });
 
   it("emits the full operational event sequence, persisted to history", async () => {
@@ -91,9 +123,40 @@ describe("mission orchestrator (end-to-end vertical slice)", () => {
 
     const paused = pauseMission(mission.id);
     expect(paused.status).toBe("PAUSED");
+    expect(listMissionTasks(mission.id)[0].status).toBe("blocked");
+
+    const checkpoints = listMissionCheckpoints(mission.id);
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].label).toBe("paused");
+    expect(checkpoints[0].state).toMatchObject({ status: "PAUSED" });
 
     const cancelled = cancelMission(mission.id);
     expect(cancelled.status).toBe("CANCELLED");
+    expect(listMissionTasks(mission.id)[0].status).toBe("cancelled");
     expect(() => cancelMission(mission.id)).toThrow(); // already terminal
+  });
+
+  it("resume() reactivates the root task instead of duplicating it", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const { pauseMission, resumeMission } = await import("./orchestrator");
+
+    const mission = createMission({ objective: "Implement a feature" }, getOwnerActor());
+    startMission(mission.id);
+
+    // Give the pipeline a moment to reach the hermes execution phase.
+    await new Promise((r) => setTimeout(r, 50));
+    pauseMission(mission.id);
+
+    let tasks = listMissionTasks(mission.id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].status).toBe("blocked");
+
+    const done = waitForMissionTerminal(mission.id);
+    resumeMission(mission.id);
+    await done;
+
+    tasks = listMissionTasks(mission.id);
+    expect(tasks).toHaveLength(1); // still exactly one task -- resume must not insert a duplicate
+    expect(tasks[0].status).toBe("completed");
   });
 });

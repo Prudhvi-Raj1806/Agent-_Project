@@ -7,7 +7,7 @@ import { RadialMeter } from "@/components/primitives/radial-meter";
 import type { UiSystemDetail } from "@/server/system/view";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 3_000;
+const POLL_MS = 5_000;
 
 function barColorClass(percent: number | null): string {
   if (percent === null) return "bg-surface-2";

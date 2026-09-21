@@ -100,6 +100,23 @@ CREATE TABLE IF NOT EXISTS verifications (
   created_at TEXT NOT NULL
 );
 
+-- Task decomposition (Phase 01). parent_id/depends_on/sequence make this
+-- genuinely DAG-capable for a future planner; today the orchestrator only
+-- ever creates one root task per mission (mirroring the whole objective).
+CREATE TABLE IF NOT EXISTS mission_tasks (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id),
+  parent_id TEXT REFERENCES mission_tasks(id),
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  sequence INTEGER NOT NULL DEFAULT 0,
+  depends_on TEXT NOT NULL DEFAULT '[]',
+  result TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mission_tasks_mission_id ON mission_tasks(mission_id);
+
 CREATE TABLE IF NOT EXISTS memory_entries (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
