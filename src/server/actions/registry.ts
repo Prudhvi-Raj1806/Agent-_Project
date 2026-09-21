@@ -2,7 +2,12 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { nowIso } from "@/server/db/util";
 import { logger } from "@/server/logging/logger";
+import { selectModel } from "@/server/omnirouter/router";
+import { runProviderCompletion } from "@/server/providers/completion";
+import { fileExists } from "@/server/tools/verification";
+import type { VerificationResult } from "@/server/verification/types";
 import type { ActionDefinition, ActionRunResult } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -34,6 +39,21 @@ async function takeNotes(): Promise<ActionRunResult> {
   }
 }
 
+/**
+ * A real, reliable observation for `take-notes`: does `data/notes.md`
+ * genuinely exist after the action ran? (Sprint 03 Section 7's "at least
+ * one real postcondition.") `takeNotes()` only ever creates the file if it
+ * doesn't already exist — either way, its existence after a successful run
+ * is the actual requested outcome, not just "the command didn't error."
+ */
+async function verifyNotesFile(): Promise<VerificationResult> {
+  const relativePath = path.relative(process.cwd(), NOTES_PATH);
+  const exists = await fileExists(NOTES_PATH);
+  return exists
+    ? { verdict: "PASS", reasons: [`Observed: ${relativePath} exists.`], checkedAt: nowIso(), strategy: "file-exists" }
+    : { verdict: "FAIL", reasons: [`Expected file not found: ${relativePath}.`], checkedAt: nowIso(), strategy: "file-exists" };
+}
+
 async function takeScreenshot(): Promise<ActionRunResult> {
   try {
     await fs.mkdir(SCREENSHOTS_DIR, { recursive: true });
@@ -52,6 +72,33 @@ async function takeScreenshot(): Promise<ActionRunResult> {
   } catch (err) {
     return { ok: false, message: "Couldn't take a screenshot.", detail: String(err) };
   }
+}
+
+/**
+ * A real observation for `take-screenshot`: `takeScreenshot()` reports the
+ * exact relative path it saved to (`detail`) — this checks that file
+ * genuinely exists, rather than trusting the PowerShell script's own exit
+ * code as proof the .png actually landed on disk.
+ */
+async function verifyScreenshotFile(result: ActionRunResult): Promise<VerificationResult> {
+  if (!result.detail) {
+    return {
+      verdict: "UNCERTAIN",
+      reasons: ["No screenshot file path was reported to observe."],
+      checkedAt: nowIso(),
+      strategy: "file-exists",
+    };
+  }
+  const absolutePath = path.join(process.cwd(), result.detail);
+  const exists = await fileExists(absolutePath);
+  return exists
+    ? { verdict: "PASS", reasons: [`Observed: ${result.detail} exists.`], checkedAt: nowIso(), strategy: "file-exists" }
+    : {
+        verdict: "FAIL",
+        reasons: [`Expected screenshot file not found: ${result.detail}.`],
+        checkedAt: nowIso(),
+        strategy: "file-exists",
+      };
 }
 
 async function findObsidian(): Promise<string | null> {
@@ -88,8 +135,13 @@ async function openObsidian(): Promise<ActionRunResult> {
   }
 }
 
-const ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022";
-
+/**
+ * Routes through the same Model Router -> Provider abstraction chain a
+ * mission uses (see JARVIS_MASTER_MEMORY.md) — this action must never call
+ * a provider API directly. `selectModel`'s classification is driven by the
+ * text passed as `objective`; a fixed "fast-general"-shaped stand-in is
+ * fine here since this is a plain summarization, not an actual mission.
+ */
 async function summarizeClipboard(): Promise<ActionRunResult> {
   let clipboardText: string;
   try {
@@ -108,40 +160,25 @@ async function summarizeClipboard(): Promise<ActionRunResult> {
     return { ok: false, message: "Clipboard is empty." };
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const routing = selectModel({ objective: "Summarize this clipboard text concisely." });
+  if (!routing) {
     return {
       ok: true,
-      message: "No LLM connected (set ANTHROPIC_API_KEY to enable real summarization) — showing raw clipboard text:",
+      message: "No healthy model provider available (set an API key to enable real summarization) — showing raw clipboard text:",
       detail: clipboardText.slice(0, 2000),
     };
   }
 
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 300,
-        messages: [{ role: "user", content: `Summarize this concisely:\n\n${clipboardText.slice(0, 8000)}` }],
-      }),
-    });
-    if (!res.ok) {
-      const errBody = await res.text();
-      return { ok: false, message: "Summarization request failed.", detail: errBody.slice(0, 500) };
-    }
-    const data = (await res.json()) as { content?: { text?: string }[] };
-    const summary = data.content?.[0]?.text;
-    if (!summary) return { ok: false, message: "Couldn't parse a summary from the response." };
-    return { ok: true, message: "Clipboard summarized.", detail: summary };
-  } catch (err) {
-    return { ok: false, message: "Summarization request failed.", detail: String(err) };
+  const completion = await runProviderCompletion({
+    routing,
+    prompt: `Summarize this concisely:\n\n${clipboardText.slice(0, 8000)}`,
+    maxTokens: 300,
+  });
+
+  if (!completion.ok) {
+    return { ok: false, message: "Summarization request failed.", detail: completion.message };
   }
+  return { ok: true, message: "Clipboard summarized.", detail: completion.text };
 }
 
 /**
@@ -196,12 +233,21 @@ function withLogging(id: string, run: () => Promise<ActionRunResult>): () => Pro
 
 export const ACTION_REGISTRY: Record<string, ActionDefinition> = {
   "open-vscode": { id: "open-vscode", label: "Open VS Code", risk: "safe", run: withLogging("open-vscode", openVsCode) },
-  "take-notes": { id: "take-notes", label: "Take Notes", risk: "safe", run: withLogging("take-notes", takeNotes) },
+  "take-notes": {
+    id: "take-notes",
+    label: "Take Notes",
+    risk: "safe",
+    run: withLogging("take-notes", takeNotes),
+    verificationStrategy: "file-exists",
+    verify: verifyNotesFile,
+  },
   "take-screenshot": {
     id: "take-screenshot",
     label: "Take a Screenshot",
     risk: "safe",
     run: withLogging("take-screenshot", takeScreenshot),
+    verificationStrategy: "file-exists",
+    verify: verifyScreenshotFile,
   },
   "open-obsidian": {
     id: "open-obsidian",

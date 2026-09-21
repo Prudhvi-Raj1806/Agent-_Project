@@ -184,6 +184,29 @@ CREATE TABLE IF NOT EXISTS audit_events (
   reason TEXT,
   created_at TEXT NOT NULL
 );
+
+-- Sprint 04 Section 13: append-only was previously an application-level
+-- convention only (nothing in the schema stopped a row from being altered
+-- or removed after the fact). These triggers make it a real, DB-enforced
+-- invariant for this connection: any UPDATE or DELETE against audit_events
+-- aborts. This does not make the audit log cryptographically tamper-evident
+-- (a local attacker with raw filesystem access to the .sqlite file could
+-- still edit it directly, and a schema migration could still DROP these
+-- triggers) — that's a materially stronger guarantee this sprint explicitly
+-- did not build. What this closes is the ordinary case: no application code
+-- path, present or future, can silently rewrite or erase an audit row while
+-- going through this database handle.
+CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+BEFORE UPDATE ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit_events is append-only: UPDATE is not permitted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+BEFORE DELETE ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit_events is append-only: DELETE is not permitted');
+END;
 `;
 
 /**

@@ -62,6 +62,27 @@ describe("mission orchestrator (end-to-end vertical slice)", () => {
     expect(listMissionTasks(mission.id)[0].status).toBe("failed");
   });
 
+  it("Sprint 03: execution success + declared criteria the output never satisfies = FAILED, not COMPLETED — never confuses 'Hermes responded' with 'the criteria were met'", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const mission = createMission(
+      { objective: "Do the thing", successCriteria: ["a-keyword-the-mock-output-will-never-contain"] },
+      getOwnerActor()
+    );
+
+    const done = waitForMissionTerminal(mission.id);
+    startMission(mission.id);
+    await done;
+
+    const finished = getMission(mission.id)!;
+    expect(finished.status).toBe("FAILED");
+    expect(finished.verification?.verdict).toBe("FAIL");
+    expect(finished.result).not.toBeNull(); // the real Hermes result is preserved even though the mission failed
+
+    const events = listEventsForMission(mission.id);
+    const failedEvent = events.find((e) => e.type === "mission.failed")!;
+    expect(failedEvent.metadata).toMatchObject({ classification: "VERIFICATION_FAILED", hasSuccessCriteria: true });
+  });
+
   it("fails the mission (not silently) when it exceeds its step budget", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
     // The mock adapter reports exactly 3 progress steps; a budget of 2 must
@@ -79,9 +100,14 @@ describe("mission orchestrator (end-to-end vertical slice)", () => {
     expect(finished.status).toBe("FAILED");
     expect(finished.progress).toBeLessThan(100);
 
-    const types = listEventsForMission(mission.id).map((e) => e.type);
+    const events = listEventsForMission(mission.id);
+    const types = events.map((e) => e.type);
     expect(types).toContain("mission.budget_exceeded");
     expect(types).toContain("mission.failed");
+
+    // Sprint 03: a budget violation is a governance constraint, not an execution error.
+    const failedEvent = events.find((e) => e.type === "mission.failed")!;
+    expect(failedEvent.metadata).toMatchObject({ classification: "POLICY_DENIED" });
 
     expect(listMissionTasks(mission.id)[0].status).toBe("failed");
   });
@@ -129,6 +155,9 @@ describe("mission orchestrator (end-to-end vertical slice)", () => {
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].label).toBe("paused");
     expect(checkpoints[0].state).toMatchObject({ status: "PAUSED" });
+    // Sprint 03: checkpoint state carries recovery-relevant verification context.
+    expect(checkpoints[0].state).toHaveProperty("verification");
+    expect(checkpoints[0].state.executionIdentity).toBe(`${mission.id}:-:-`);
 
     const cancelled = cancelMission(mission.id);
     expect(cancelled.status).toBe("CANCELLED");

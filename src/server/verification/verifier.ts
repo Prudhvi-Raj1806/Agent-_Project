@@ -18,11 +18,11 @@ export function verify(input: VerificationInput): VerificationResult {
   const checkedAt = nowIso();
 
   if (!hermesResult.success) {
-    return { verdict: "FAIL", reasons: ["Execution reported failure."], checkedAt };
+    return { verdict: "FAIL", reasons: ["Execution reported failure."], checkedAt, strategy: "text-match" };
   }
 
   if (!hermesResult.output.trim()) {
-    return { verdict: "FAIL", reasons: ["Execution produced no output to verify."], checkedAt };
+    return { verdict: "FAIL", reasons: ["Execution produced no output to verify."], checkedAt, strategy: "text-match" };
   }
 
   if (successCriteria.length === 0) {
@@ -32,6 +32,7 @@ export function verify(input: VerificationInput): VerificationResult {
         "No success criteria were defined for this mission — completing execution is not sufficient evidence of success.",
       ],
       checkedAt,
+      strategy: "text-match",
     };
   }
 
@@ -43,8 +44,14 @@ export function verify(input: VerificationInput): VerificationResult {
       verdict: "FAIL",
       reasons: [`Output does not address success criteria: ${missing.join(", ")}`],
       checkedAt,
+      strategy: "text-match",
     };
   }
 
-  return { verdict: "PASS", reasons: ["All declared success criteria are addressed in the output."], checkedAt };
+  return {
+    verdict: "PASS",
+    reasons: ["All declared success criteria are addressed in the output."],
+    checkedAt,
+    strategy: "text-match",
+  };
 }

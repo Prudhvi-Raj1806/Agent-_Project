@@ -6,9 +6,12 @@ import { logger } from "@/server/logging/logger";
 import { selectModel } from "@/server/omnirouter/router";
 import { recordAudit } from "@/server/security/audit";
 import { getOwnerActor, getSystemActor } from "@/server/security/policy";
-import { evaluateToolRequest } from "@/server/security/tool-policy";
+import { evaluateGovernedToolCall, recordToolCallResolution } from "@/server/tools/executor";
+import { classifyHermesError, classifyPolicyDenial, classifyVerificationFailure } from "@/server/verification/classification";
+import { executionIdentityKey } from "@/server/verification/execution-identity";
 import { verify } from "@/server/verification/verifier";
 import { createCheckpoint } from "./checkpoints/service";
+import { decideMissionCompletion } from "./completion-policy";
 import { ensureRootTask, markRootTaskStatus } from "./tasks/service";
 import type { MissionTaskResult, MissionTaskStatus } from "./tasks/service";
 import {
@@ -30,6 +33,58 @@ import type { Mission, MissionAgentAssignment, MissionStatus, PendingToolApprova
  */
 
 const controllers = new Map<string, AbortController>();
+
+/**
+ * Execution-generation guard against the pause/resume stale-execution race:
+ * a paused pipeline run (`run A`) can still be in flight (its Hermes adapter
+ * call hasn't actually unwound yet) when the mission is resumed and a new
+ * run (`run B`) starts. If run A's `adapter.execute()` promise later settles
+ * — successfully or not, and regardless of whether it honored the abort
+ * signal — it must not be allowed to mutate mission/task state on B's
+ * behalf. `currentRunGeneration` holds, per mission, the generation number
+ * of the one run currently entitled to write mission state. `startNewRun`
+ * is called exactly once per `executePipeline` invocation (from
+ * `beginMission`/`resumeMission`, before the pipeline is even started) and
+ * overwrites whatever generation was previously current — which is itself
+ * enough to invalidate a still-in-flight prior run, without relying on the
+ * timing of that prior run's own abort signal. `invalidateRun` (from
+ * `pauseMission`/`cancelMission`) additionally clears the slot outright, so
+ * a run that resolves while the mission is merely paused (not yet resumed)
+ * is equally rejected.
+ */
+const currentRunGeneration = new Map<string, number>();
+let runGenerationCounter = 0;
+
+function startNewRun(missionId: string): number {
+  const generation = ++runGenerationCounter;
+  currentRunGeneration.set(missionId, generation);
+  return generation;
+}
+
+function invalidateRun(missionId: string): void {
+  currentRunGeneration.delete(missionId);
+}
+
+/** True once this run has been superseded (a newer run started) or the mission was paused/cancelled. */
+function isStaleRun(missionId: string, generation: number): boolean {
+  return currentRunGeneration.get(missionId) !== generation;
+}
+
+function logStaleRun(missionId: string, generation: number, where: string): void {
+  logger.warn("mission.run.stale", {
+    missionId,
+    generation,
+    currentGeneration: currentRunGeneration.get(missionId) ?? null,
+    where,
+  });
+}
+
+/** Removes this run's own controller from the map, but never a newer run's controller that may have replaced it. */
+function clearOwnController(missionId: string, controller: AbortController): void {
+  if (controllers.get(missionId) === controller) {
+    controllers.delete(missionId);
+  }
+}
 
 /**
  * Budget accounting (`Mission.budget`). In-memory only, like `controllers`:
@@ -122,9 +177,14 @@ function checkToolCallBudget(missionId: string, budget: Mission["budget"], reque
  */
 function failMissionOnBudgetViolation(
   missionId: string,
+  generation: number,
   violation: BudgetViolation,
   opts?: { controller?: AbortController; result?: HermesResult }
 ): void {
+  if (isStaleRun(missionId, generation)) {
+    logStaleRun(missionId, generation, "failMissionOnBudgetViolation");
+    return;
+  }
   opts?.controller?.abort();
   emitEvent({
     type: "mission.budget_exceeded",
@@ -134,7 +194,14 @@ function failMissionOnBudgetViolation(
     metadata: { ...violation },
   });
   const finalMission = safeTransition(missionId, "FAILED", opts?.result ? { result: opts.result } : undefined);
-  emitEvent({ type: "mission.failed", missionId, source: "orchestrator", status: "failed", metadata: { reason: violation.reason } });
+  // A budget is a governance constraint, not an execution error — POLICY_DENIED, same family as a tool-policy DENY.
+  emitEvent({
+    type: "mission.failed",
+    missionId,
+    source: "orchestrator",
+    status: "failed",
+    metadata: { reason: violation.reason, classification: classifyPolicyDenial() },
+  });
   mirrorTaskStatus(missionId, finalMission, "failed", opts?.result);
   clearBudgetState(missionId);
 }
@@ -176,9 +243,15 @@ export function resolveToolApproval(missionId: string, toolCallId: string, appro
  */
 async function handleToolRequest(
   missionId: string,
+  generation: number,
   controller: AbortController,
   request: HermesToolRequest
 ): Promise<ToolDecision> {
+  if (isStaleRun(missionId, generation)) {
+    logStaleRun(missionId, generation, "handleToolRequest");
+    return { decision: "deny", reason: "This pipeline run has been superseded (mission was paused/resumed) — denying by default." };
+  }
+
   const mission = getMission(missionId);
   if (!mission) return { decision: "deny", reason: "Mission no longer exists." };
 
@@ -207,27 +280,28 @@ async function handleToolRequest(
       agentId: HERMES_AGENT_ID,
       source: "orchestrator",
       status: "denied",
-      metadata: { toolCallId: request.toolCallId, toolName: request.toolName, reason: budgetViolation.reason },
+      metadata: {
+        toolCallId: request.toolCallId,
+        toolName: request.toolName,
+        reason: budgetViolation.reason,
+        executionIdentity: executionIdentityKey({ missionId, taskId: null, toolCallId: request.toolCallId }),
+      },
     });
-    failMissionOnBudgetViolation(missionId, budgetViolation, { controller });
+    failMissionOnBudgetViolation(missionId, generation, budgetViolation, { controller });
     return { decision: "deny", reason: budgetViolation.reason };
   }
 
-  const policy = evaluateToolRequest({
-    toolName: request.toolName,
-    allowedTools: mission.allowedTools,
-    forbiddenActions: mission.forbiddenActions,
-  });
+  const auditTarget = { actorId: getSystemActor().id, resourceType: "tool_call", resourceId: request.toolCallId };
+  const policy = evaluateGovernedToolCall(
+    {
+      toolName: request.toolName,
+      allowedTools: mission.allowedTools,
+      forbiddenActions: mission.forbiddenActions,
+    },
+    auditTarget
+  );
 
   if (policy.verdict === "DENY") {
-    recordAudit({
-      actorId: getSystemActor().id,
-      action: "tool.deny",
-      resourceType: "tool_call",
-      resourceId: request.toolCallId,
-      result: "denied",
-      reason: policy.reason,
-    });
     emitEvent({
       type: "tool.denied",
       missionId,
@@ -247,14 +321,6 @@ async function handleToolRequest(
   }
 
   if (policy.verdict === "ALLOW") {
-    recordAudit({
-      actorId: getSystemActor().id,
-      action: "tool.allow",
-      resourceType: "tool_call",
-      resourceId: request.toolCallId,
-      result: "allowed",
-      reason: policy.reason,
-    });
     emitEvent({
       type: "tool.approved",
       missionId,
@@ -300,19 +366,16 @@ async function handleToolRequest(
   });
 
   clearPendingToolApproval(missionId);
-  if (!controller.signal.aborted) {
+  if (!controller.signal.aborted && !isStaleRun(missionId, generation)) {
     safeTransition(missionId, "RUNNING");
     setHermesAgentStatus(missionId, "working");
   }
 
-  recordAudit({
-    actorId: resolvedByHuman ? getOwnerActor().id : getSystemActor().id,
-    action: decision.decision === "allow" ? "tool.allow" : "tool.deny",
-    resourceType: "tool_call",
-    resourceId: request.toolCallId,
-    result: decision.decision === "allow" ? "allowed" : "denied",
-    reason: decision.reason,
-  });
+  recordToolCallResolution(
+    { actorId: resolvedByHuman ? getOwnerActor().id : getSystemActor().id, resourceType: "tool_call", resourceId: request.toolCallId },
+    decision.decision === "allow",
+    decision.reason
+  );
   emitEvent({
     type: decision.decision === "allow" ? "tool.approved" : "tool.denied",
     missionId,
@@ -371,6 +434,7 @@ async function beginMission(missionId: string): Promise<void> {
   const mission = getMission(missionId);
   if (!mission) return;
   transitionMission(missionId, "RUNNING");
+  const generation = startNewRun(missionId);
   emitEvent({ type: "mission.started", missionId, source: "orchestrator", status: "running" });
   const task = ensureRootTask(missionId, mission.objective);
   emitEvent({
@@ -380,11 +444,12 @@ async function beginMission(missionId: string): Promise<void> {
     status: task.status,
     metadata: { taskId: task.id, title: task.title },
   });
-  await executePipeline(missionId, 0);
+  await executePipeline(missionId, 0, generation);
 }
 
 export function resumeMission(missionId: string): Mission {
   const mission = transitionMission(missionId, "RUNNING");
+  const generation = startNewRun(missionId); // supersedes whatever run (if any) was previously current for this mission
   setHermesAgentStatus(missionId, "working");
   emitEvent({ type: "mission.resumed", missionId, source: "orchestrator", status: "running" });
   const task = ensureRootTask(missionId, mission.objective);
@@ -395,7 +460,7 @@ export function resumeMission(missionId: string): Mission {
     status: task.status,
     metadata: { taskId: task.id },
   });
-  void executePipeline(missionId, mission.progress);
+  void executePipeline(missionId, mission.progress, generation);
   return mission;
 }
 
@@ -403,14 +468,23 @@ export function pauseMission(missionId: string): Mission {
   const mission = transitionMission(missionId, "PAUSED");
   controllers.get(missionId)?.abort();
   controllers.delete(missionId);
+  invalidateRun(missionId); // no run is current while paused, even if the aborted one hasn't unwound yet
   setHermesAgentStatus(missionId, "waiting");
   emitEvent({ type: "mission.paused", missionId, source: "orchestrator", status: "paused" });
   mirrorTaskStatus(missionId, mission, "blocked");
+  // Sprint 03: fold in whatever verification result this mission already
+  // carries (null if it's never completed a run yet) and a stable identity
+  // key — recovery-relevant context a future resume/replan step can read,
+  // without inventing a second checkpoint mechanism or a resume-from-
+  // checkpoint feature (neither exists yet, deliberately — see
+  // missions/checkpoints/service.ts).
   const checkpoint = createCheckpoint(missionId, "paused", {
     status: mission.status,
     progress: mission.progress,
     currentObjective: mission.currentObjective,
     agents: mission.agents,
+    verification: mission.verification,
+    executionIdentity: executionIdentityKey({ missionId, taskId: null, toolCallId: null }),
   });
   emitEvent({
     type: "mission.checkpoint.created",
@@ -426,6 +500,7 @@ export function cancelMission(missionId: string): Mission {
   const mission = transitionMission(missionId, "CANCELLED");
   controllers.get(missionId)?.abort();
   controllers.delete(missionId);
+  invalidateRun(missionId);
   clearBudgetState(missionId);
   setHermesAgentStatus(missionId, "idle");
   emitEvent({ type: "mission.cancelled", missionId, source: "orchestrator", status: "cancelled" });
@@ -433,7 +508,7 @@ export function cancelMission(missionId: string): Mission {
   return mission;
 }
 
-async function executePipeline(missionId: string, fromPercent: number): Promise<void> {
+async function executePipeline(missionId: string, fromPercent: number, generation: number): Promise<void> {
   const startedAt = Date.now();
   const mission = getMission(missionId);
   if (!mission) return;
@@ -451,7 +526,15 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
     const reason = "No healthy provider with available capacity for this task.";
     emitEvent({ type: "model.failed", missionId, source: "omnirouter", status: "failed", metadata: { reason } });
     const finalMission = safeTransition(missionId, "FAILED");
-    emitEvent({ type: "mission.failed", missionId, source: "orchestrator", status: "failed", metadata: { reason } });
+    // "UNKNOWN", not guessed as TRANSIENT/PERMANENT: routing failure alone
+    // doesn't tell us whether a provider will ever become available again.
+    emitEvent({
+      type: "mission.failed",
+      missionId,
+      source: "orchestrator",
+      status: "failed",
+      metadata: { reason, classification: "UNKNOWN" },
+    });
     mirrorTaskStatus(missionId, finalMission, "failed");
     clearBudgetState(missionId);
     return;
@@ -467,11 +550,23 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
   const adapter = getHermesAdapter();
   if (adapter.mode === "real") {
     const health = await adapter.checkHealth();
+    if (isStaleRun(missionId, generation)) {
+      logStaleRun(missionId, generation, "executePipeline:health-check");
+      return;
+    }
     if (!health.healthy) {
       const reason = "Hermes runtime is unreachable or unhealthy.";
       emitEvent({ type: "agent.failed", missionId, agentId: "hermes", source: "hermes", status: "failed", metadata: { reason, health } });
       const finalMission = safeTransition(missionId, "FAILED");
-      emitEvent({ type: "mission.failed", missionId, source: "orchestrator", status: "failed", metadata: { reason } });
+      // "UNKNOWN": a failed health check alone doesn't distinguish a momentary
+      // outage (TRANSIENT) from a permanent misconfiguration (PERMANENT).
+      emitEvent({
+        type: "mission.failed",
+        missionId,
+        source: "orchestrator",
+        status: "failed",
+        metadata: { reason, classification: "UNKNOWN" },
+      });
       mirrorTaskStatus(missionId, finalMission, "failed");
       clearBudgetState(missionId);
       return;
@@ -497,7 +592,7 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
       {
         signal: controller.signal,
         onProgress: (percent, note) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || isStaleRun(missionId, generation)) return;
           const maxSteps = mission.budget?.maxSteps;
           if (maxSteps != null) {
             const state = getBudgetState(missionId);
@@ -505,6 +600,7 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
             if (state.steps > maxSteps) {
               failMissionOnBudgetViolation(
                 missionId,
+                generation,
                 {
                   dimension: "maxSteps",
                   limit: maxSteps,
@@ -534,7 +630,7 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
           });
         },
         onToolEvent: (toolEvent) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || isStaleRun(missionId, generation)) return;
           const metadata =
             toolEvent.type === "tool.started"
               ? { toolCallId: toolEvent.toolCallId, toolName: toolEvent.toolName, input: toolEvent.input }
@@ -550,12 +646,16 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
             metadata,
           });
         },
-        onToolRequest: (request) => handleToolRequest(missionId, controller, request),
+        onToolRequest: (request) => handleToolRequest(missionId, generation, controller, request),
       }
     );
   } catch (err) {
-    controllers.delete(missionId);
+    clearOwnController(missionId, controller);
     if (controller.signal.aborted) return; // pause()/cancelMission() already transitioned state.
+    if (isStaleRun(missionId, generation)) {
+      logStaleRun(missionId, generation, "executePipeline:catch");
+      return;
+    }
     setHermesAgentStatus(missionId, "failed");
     emitEvent({
       type: "agent.failed",
@@ -566,12 +666,27 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
       metadata: { error: String(err) },
     });
     const finalMission = safeTransition(missionId, "FAILED");
-    emitEvent({ type: "mission.failed", missionId, source: "orchestrator", status: "failed", metadata: { error: String(err) } });
+    emitEvent({
+      type: "mission.failed",
+      missionId,
+      source: "orchestrator",
+      status: "failed",
+      metadata: { error: String(err), classification: classifyHermesError(err) },
+    });
     mirrorTaskStatus(missionId, finalMission, "failed");
     clearBudgetState(missionId);
     return;
   }
-  controllers.delete(missionId);
+  clearOwnController(missionId, controller);
+
+  // The pipeline's own adapter call resolved normally, but this run may have
+  // been superseded (paused, then resumed into a newer run) while it was
+  // in flight — some adapters don't reliably turn an abort into a rejection.
+  // A stale run must never mutate mission/task state on a newer run's behalf.
+  if (isStaleRun(missionId, generation)) {
+    logStaleRun(missionId, generation, "executePipeline:resolved");
+    return;
+  }
 
   setHermesAgentStatus(missionId, hermesResult.success ? "completed" : "failed");
   emitEvent({
@@ -587,6 +702,7 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
   if (maxTokens != null && hermesResult.usage != null && hermesResult.usage.totalTokens > maxTokens) {
     failMissionOnBudgetViolation(
       missionId,
+      generation,
       {
         dimension: "maxTokens",
         limit: maxTokens,
@@ -602,11 +718,31 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
   const latest = getMission(missionId);
   if (!latest) return;
   const verdict = verify({ successCriteria: latest.successCriteria, hermesResult });
+  const hasSuccessCriteria = latest.successCriteria.length > 0;
+  const completionOutcome = decideMissionCompletion(verdict, hasSuccessCriteria);
 
-  if (verdict.verdict === "FAIL") {
-    emitEvent({ type: "verification.failed", missionId, source: "verifier", status: "failed", metadata: { ...verdict } });
+  if (completionOutcome === "FAILED") {
+    // A real FAIL gets its own event type; an UNCERTAIN verdict that blocks
+    // completion (criteria were declared, evidence was inconclusive) is
+    // still a "verification.completed" — the verifier itself ran to
+    // completion and returned a genuine answer, it just wasn't PASS. Only
+    // the mission-level outcome (COMPLETED vs FAILED) is decided here.
+    emitEvent({
+      type: verdict.verdict === "FAIL" ? "verification.failed" : "verification.completed",
+      missionId,
+      source: "verifier",
+      status: verdict.verdict.toLowerCase(),
+      metadata: { ...verdict },
+    });
+    const classification = classifyVerificationFailure(verdict.verdict);
     const finalMission = safeTransition(missionId, "FAILED", { result: hermesResult, verification: verdict });
-    emitEvent({ type: "mission.failed", missionId, source: "orchestrator", status: "failed", metadata: { verdict } });
+    emitEvent({
+      type: "mission.failed",
+      missionId,
+      source: "orchestrator",
+      status: "failed",
+      metadata: { verdict, classification, hasSuccessCriteria },
+    });
     mirrorTaskStatus(missionId, finalMission, "failed", hermesResult);
     clearBudgetState(missionId);
   } else {
@@ -623,5 +759,10 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
     clearBudgetState(missionId);
   }
 
-  logger.info("mission.pipeline.completed", { missionId, durationMs: Date.now() - startedAt, verdict: verdict.verdict });
+  logger.info("mission.pipeline.completed", {
+    missionId,
+    durationMs: Date.now() - startedAt,
+    verdict: verdict.verdict,
+    outcome: completionOutcome,
+  });
 }
