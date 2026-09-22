@@ -1,8 +1,168 @@
 # JARVIS Current Stage
 
-Snapshot of actual implementation state as of 2026-09-22 (end of session), after Production Sprint 06 (Hermes Capability Boundary + Tool Visibility Investigation). Prior snapshot, earlier the same day, was after Production Sprint 05 (Real Hermes Runtime Verification); before that, 2026-09-21, Production Sprint 04 (Security Boundary Hardening); before that, Production Sprint 03 (Verification v2 + Safe Recovery Foundations); before that, Production Sprint 02 (ToolExecutor as the Single Side-Effect Execution Boundary); before that, Production Sprint 01 (Mission Integrity + Unified Tool Boundary); before that, real Hermes verification (Phase 02), full budget enforcement + checkpoints (Phase 01), and the World State reconciliation module (Phase 03); before that, step-budget enforcement alone; before that, 2026-09-20, after the Performance Stabilization sprint. This document is a factual snapshot, not a plan — see `JARVIS_PHASE_STATUS.md` for phase-by-phase roadmap tracking and `JARVIS_MASTER_MEMORY.md` for durable architecture decisions.
+Snapshot of actual implementation state as of 2026-09-22 (end of session), after Production Sprint 07 (Hermes Capability Governance — investigation only, no code changed). Prior snapshot, earlier the same day, was after Production Sprint 06 (Hermes Capability Boundary + Tool Visibility Investigation); before that, Production Sprint 05 (Real Hermes Runtime Verification); before that, 2026-09-21, Production Sprint 04 (Security Boundary Hardening); before that, Production Sprint 03 (Verification v2 + Safe Recovery Foundations); before that, Production Sprint 02 (ToolExecutor as the Single Side-Effect Execution Boundary); before that, Production Sprint 01 (Mission Integrity + Unified Tool Boundary); before that, real Hermes verification (Phase 02), full budget enforcement + checkpoints (Phase 01), and the World State reconciliation module (Phase 03); before that, step-budget enforcement alone; before that, 2026-09-20, after the Performance Stabilization sprint. This document is a factual snapshot, not a plan — see `JARVIS_PHASE_STATUS.md` for phase-by-phase roadmap tracking and `JARVIS_MASTER_MEMORY.md` for durable architecture decisions.
 
 Labels used below follow the project's Honesty Rule: **REAL** (genuinely implemented and exercised), **MOCK** (explicitly simulated, self-labeled as such), **SCHEMA-ONLY** (table exists, no code touches it), **UNVERIFIED** (real code path exists but hasn't been proven against a live external dependency).
+
+## Production Sprint 07 — Hermes Capability Governance + Existing Configuration Boundary (2026-09-22)
+
+**Charter (verbatim intent):** determine, using Hermes Agent v0.21.0's actual installed source and controlled runtime evidence, whether Hermes's existing capability controls (`command_allowlist`, `approvals.deny`, `approvals.unattended_mode`) can provide a real execution boundary for JARVIS, or whether an external process/sandbox boundary is required before autonomous side-effecting missions can be safely enabled. Investigation + controlled experiment only: no Hermes source or installed-dependency modification, no destructive commands, no Planner/Replanner, no sandbox implementation, no OmniRouter redesign. `git status` was clean before and after — **no source code was changed this sprint.**
+
+### 0. Baseline (verified before any change)
+
+- `git log -5 --oneline` HEAD: `ca61016 feat: Hermes capability-boundary investigation, close tool-call visibility gap` (Production Sprint 06's commit). Branch `main`, 3 commits ahead of `origin/main`.
+- `git status`: clean, before and after this sprint.
+- `npx tsc --noEmit`: clean.
+- `npm test`: **36 files, 193 tests, all passing.**
+- `npm run lint`: clean.
+- `npm run build`: succeeds (all API routes and pages compile; `Route (app)` listing unchanged from prior sprints).
+- Hermes Agent version, read directly from the installed binary: `hermes --version` → `Hermes Agent v0.21.0 (2026.8.31) · upstream 1a90fad0 · local 922c0d67 (+1 carried commit)`, install method `git`, install dir `C:\Users\Prudh\AppData\Local\hermes\hermes-agent`, Python 3.11.16.
+- Live `config.yaml` (`C:\Users\Prudh\AppData\Local\hermes\config.yaml`) confirmed to have **no `approvals:` block and no `command_allowlist` key at all** — every `approvals.*` value in this section is Hermes's shipped default, not an operator choice. `platforms.api_server: {enabled: true, host: 127.0.0.1, port: 8642}` confirmed present, matching this repo's `.env.local`.
+- The Hermes gateway (`hermes gateway run`, api_server) was **not running** at the start of this sprint (stale `gateway.pid`/`gateway_state.json`; `curl http://127.0.0.1:8642/health` → connection refused). Started for this sprint's live tests, confirmed healthy (`{"status": "ok", "platform": "hermes-agent", "version": "0.21.0"}`), and **stopped again afterward** to leave the machine in the state this sprint found it.
+
+### 1. Configuration surface inspected (source-read, `C:\Users\Prudh\AppData\Local\hermes\hermes-agent\`)
+
+- **`command_allowlist`** (`tools/approval.py`): a flat list of exact-command-or-glob strings, loaded into an in-memory `_permanent_approved` set at import (`load_permanent_allowlist()`) and re-saved on every `[a]lways` choice (`save_permanent_allowlist`). Consulted by `approval_floors.py`'s `_command_matches_permanent_allowlist` — matched commands skip straight to `_approved()`. **It is a bypass list (widens auto-approval), never a restriction (cannot narrow what may run) — there is no "only run what's listed" mode anywhere in this mechanism.**
+- **`approvals.deny`** (`tools/approval_floors.py`'s `_match_user_deny_rule`, read via `tools/approval_context.py`'s `_get_approval_config().get("deny")`): a list of case-insensitive `fnmatch` globs matched against normalized/deobfuscated command variants. Evaluated in `_floor_block`, called from both `check_dangerous_command` and `check_all_command_guards` **before** yolo, `approvals.mode: off`, cron approve-mode, or the container-sandbox fast path — i.e. unconditional, exactly as its own source comment states ("never bypassable — not by yolo, not by mode=off, and not by an isolated container either").
+- **`approvals.unattended_mode`** (`tools/approval_context.py`'s `_get_unattended_approval_mode`, default `"deny"` via `_binary_approval_mode`): governs what happens to a *flagged* (pattern-matched dangerous, or whole-script `execute_code`) call when no human can answer a prompt. `api_server` is one of exactly three platforms in this bucket — `_UNATTENDED_APPROVAL_PLATFORMS = frozenset({"webhook", "msgraph_webhook", "api_server"})`, hardcoded in `tools/approval_context.py:134`, confirmed again this sprint (not a config value; no config key changes this classification).
+- **Dangerous-pattern detection** (`tools/approval_detection.py`'s `DANGEROUS_PATTERNS`/`HARDLINE_PATTERNS`, ~120+ regexes): covers POSIX and Windows destructive commands (`rm -rf`, PowerShell `Remove-Item -Recurse -Force`, `taskkill /F`, `reg delete`, `diskpart`, `vssadmin delete shadows`, SQL `DROP`/`DELETE FROM` without `WHERE`, etc. — read in full this sprint, not sampled). **A command matching neither list is never checked against any config at all — there is no default-deny; the default is default-allow-unless-pattern-matched.**
+- **File-write gating** (`tools/file_tools_write_guards.py`): `write_file_tool`/`patch_tool` call exactly two gates — `_check_protected_instruction_write` (a small, config-listed set of Hermes's own instruction/memory files, `security.protected_instruction_files`, default `True`) and `_check_approval_required_write` (a hardcoded SSH-client-config path check only — `~/.ssh/config` etc., because it can execute code via `ProxyCommand`). **Confirmed by reading the full file: no other write path is gated by anything.** `read_file_tool` has no approval logic at all.
+- **`execute_code`** (`tools/approval.py`'s `check_execute_code_guard`): unattended contexts (including `api_server`) resolve the **entire script** as one unit — `deny` mode blocks it outright before it runs; `approve` mode runs it with zero further gating. No per-line/per-call gating exists for `execute_code` the way shell commands get pattern-matched.
+- **`web_tools.py`** (checked fresh this sprint, not examined by Sprint 06): grepped the full file for any approval/guard call — **none exists.** `web_search_tool` and friends execute unconditionally.
+- **Tool enable/disable**: `platform_toolsets`/`toolsets` config keys are real (confirmed present in the live `config.yaml`, e.g. `platform_toolsets.cli: [hermes-cli]`) and control which toolset a platform loads at all — a coarse, all-or-nothing per-toolset switch, not a per-capability allow/deny; not the same mechanism as `command_allowlist`/`approvals.deny` and out of this sprint's narrower charter to fully trace.
+- **Sandbox backends** (`terminal.env_type`: `docker`/`singularity`/`modal`/`daytona`/`vercel_sandbox`/local): this installation runs `local` (bare host execution, reconfirmed — unchanged from Sprint 06).
+
+### 2 & 3. Controlled experiments — `command_allowlist` and `approvals.deny`
+
+**Method, and why it differs from Sprint 06's:** Sprint 06 drove real missions through JARVIS's own `/api/missions` API end-to-end. This sprint attempted the same and could not complete it — this installation's configured model backend (a local `antigravity`/OmniRoute-style proxy at `127.0.0.1:20128`) refused every connection (`httpcore.ConnectError: [WinError 10061]`, confirmed in Hermes's own gateway log after starting it fresh for this sprint), so every `POST /v1/runs` this sprint submitted ended in `run.failed`/`"Connection error."` before Hermes's own model got far enough to decide on a tool call at all. This is an environment/credentials limitation (the operator's own local model proxy, unrelated to Hermes's approval logic), not a Hermes behavior — and not something in scope to fix. Rather than leave `command_allowlist`/`approvals.deny` as SOURCE-VERIFIED-only again, this sprint instead drove Hermes's own installed gate function directly: `python.exe` from Hermes's own bundled venv (`hermes-agent\venv\Scripts\python.exe`, so all its real dependencies resolve), importing `tools.approval`/`tools.approval_context` and calling `check_all_command_guards`/`check_execute_code_guard` — **the exact functions `tools/terminal_tool.py` calls before spawning a process** (confirmed: `terminal_tool.py:843-844`, `if not approval["approved"]: raise ...` — this is a genuine pre-execution boundary, not a post-hoc log). `HERMES_SESSION_PLATFORM=api_server` was set to reproduce the real unattended context. No `config.yaml` write; `command_allowlist`/`approvals.deny` were seeded via `approval.load_permanent(...)` and an in-process monkeypatch of `approval_context._get_approval_config`, both scoped to that one disposable Python process only. No command was ever actually executed — these functions only return a verdict.
+
+**Experiment record (format per this sprint's own brief):**
+
+```
+Capability: shell command, not dangerous-pattern-matched
+Configuration: live default (no approvals block, no command_allowlist)
+Runtime: real Hermes Agent 0.21.0 tools.approval, api_server context simulated
+Requested: yes (direct call to check_all_command_guards("echo hello-sprint07", "host"))
+Observed: yes (return value inspected directly)
+Approval event: none — no gate reached
+JARVIS policy decision: N/A (not routed through JARVIS this experiment — isolating Hermes's own behavior)
+Executed: N/A (gate function only; no subprocess spawned by this experiment)
+Verification: approved=True, message=''
+Result: CONFIRMS Sprint 06 — non-dangerous commands run fully ungated regardless of config.
+```
+```
+Capability: shell command, dangerous-pattern-matched (PowerShell Remove-Item -Recurse -Force)
+Configuration: live default (unattended_mode unset → 'deny')
+Runtime: real Hermes Agent 0.21.0 tools.approval, api_server context simulated
+Requested: yes
+Observed: yes
+Approval event: internal unattended-deny path taken (ctx.mode() == "deny")
+JARVIS policy decision: N/A (isolated Hermes-side experiment)
+Executed: N/A (gate function only — and per source, a False verdict here means terminal_tool.py never spawns the process)
+Verification: approved=False, message="BLOCKED: Command flagged as dangerous (PowerShell destructive delete (Remove-Item)) but this session runs on an unattended platform (api_server) with no user present..."
+Result: NEW THIS SPRINT — Sprint 06 declined to test this live (destructive-command risk). Confirms the default IS doing real, active work, not sitting inert. Pre-execution block, not post-hoc.
+```
+```
+Capability: same dangerous command, now in command_allowlist (in-process only)
+Configuration: default unattended_mode='deny' + command_allowlist seeded with the exact command string
+Runtime: real Hermes Agent 0.21.0 tools.approval
+Requested: yes
+Observed: yes
+Approval event: _command_matches_permanent_allowlist matched -> _approved() short-circuit, before dangerous-pattern check even runs
+JARVIS policy decision: N/A
+Executed: N/A
+Verification: approved=True, message=''
+Result: CONFIRMS command_allowlist is a bypass mechanism — the identical command that was BLOCKED above is now approved purely by string/glob membership.
+```
+```
+Capability: a DIFFERENT dangerous command, NOT in the allowlist
+Configuration: same as above (allowlist has one specific unrelated entry)
+Runtime: real Hermes Agent 0.21.0 tools.approval
+Requested: yes / Observed: yes / Approval event: unattended-deny path (not matched by allowlist)
+JARVIS policy decision: N/A / Executed: N/A
+Verification: approved=False (same BLOCKED message as the second experiment)
+Result: Confirms allowlist matching is exact/glob-specific, not a blanket "allowlist non-empty -> less strict" toggle.
+```
+```
+Capability: harmless command matching an approvals.deny glob (not on Hermes's own dangerous-pattern list at all)
+Configuration: approvals.deny = ["*sprint07-deny-marker*"] (in-process monkeypatch only, never written to config.yaml)
+Runtime: real Hermes Agent 0.21.0 tools.approval
+Requested: yes / Observed: yes
+Approval event: _user_deny_block (the unconditional floor, evaluated before yolo/mode=off/allowlist)
+JARVIS policy decision: N/A / Executed: N/A
+Verification: approved=False, message="BLOCKED: this command matches the user-defined deny rule '*sprint07-deny-marker*' (approvals.deny in config.yaml). It cannot be executed via the agent — not even with --yolo..."
+Result: NEW — approvals.deny is an OPERATOR-EXTENSIBLE denylist, independent of the built-in dangerous-pattern list, not merely a stricter view of it.
+```
+```
+Capability: same deny-glob-matched command, now ALSO added to command_allowlist
+Configuration: approvals.deny glob still active + the same command string added to command_allowlist
+Runtime: real Hermes Agent 0.21.0 tools.approval
+Requested: yes / Observed: yes
+Approval event: _user_deny_block fires first (floor runs before the allowlist check in check_all_command_guards's own function order)
+JARVIS policy decision: N/A / Executed: N/A
+Verification: approved=False (same deny message)
+Result: NEW, LIVE-CONFIRMED — approvals.deny is senior to command_allowlist. The source comment ("never bypassable") is proven to extend to the allowlist, not only to yolo/mode=off.
+```
+```
+Capability: execute_code (arbitrary Python), default config
+Configuration: live default (unattended_mode unset -> 'deny')
+Runtime: real Hermes Agent 0.21.0 tools.approval, api_server context simulated
+Requested: yes (check_execute_code_guard("print(1)", "host"))
+Observed: yes
+Approval event: unattended-deny path, whole-script (no per-line gating exists for this tool)
+JARVIS policy decision: N/A / Executed: N/A
+Verification: approved=False, outcome='blocked', message="BLOCKED: execute_code runs arbitrary local Python... this session runs on an unattended platform (api_server)..."
+Result: RESOLVES Sprint 06's UNVERIFIED row for execute_code to REAL — fully blocked by the live default, no configuration needed.
+```
+
+### 4. Internal tool restriction
+
+No generic `enabled_tools`/`disabled_tools`/`allowed_tools`/`denied_tools` mechanism was found (this sprint's own charter's hypothesized names). `platform_toolsets` (Section 1) is the closest real analogue — coarse, toolset-level, not per-capability. Confirmed (Section 1) that only two capability categories have ANY gate at all: shell/terminal commands (pattern-matched) and `execute_code` (whole-script, unattended-mode-gated). File read, file write (outside two narrow exceptions), and network/web calls have zero restriction mechanism of any kind, configured or not — not merely unconfigured.
+
+### 5. `api_server` as the critical test
+
+Reconfirmed, source and (via the in-process method) behaviorally: `api_server` is structurally routed to the unattended-context branch of every gate (`_is_gateway_approval_context()` returns `False` for it; `_unattended_contexts()` includes it whenever `HERMES_SESSION_PLATFORM=api_server`). There is no supported override that routes an api_server-originated approval back through an interactive round-trip — the override surface that *does* exist (`approvals.unattended_mode: approve`) does not restore interactivity, it just changes the unattended default from block-flagged-calls to allow-flagged-calls. No Hermes source was patched to test this; the classification was read directly and exercised via the real function, not simulated.
+
+### 6. Governance outcome
+
+**PARTIALLY GOVERNED.** Hermes's existing, supported configuration provides a real, now live-confirmed, pre-execution hard block for: dangerous-pattern-matched shell commands (live default), `execute_code` in its entirety (live default), and anything the operator adds to `approvals.deny` (confirmed senior to every other mechanism, including the allowlist). It provides **no** mechanism, configured or not, for: ordinary file writes, ordinary shell commands (the non-dangerous majority — i.e. most legitimate task execution), or any network/web-tool call. Neither Outcome A (sufficiently governed) nor Outcome C (not governed at all) fits the evidence.
+
+### 7–10. Fake-governance check, capability matrix, JARVIS-side policy, ToolExecutor
+
+No JARVIS governance was fabricated. `tool.started`/`tool.completed` were not reinterpreted as `tool.requested`; no historical event was routed through `ToolExecutor` and called authorization. See JARVIS_MASTER_MEMORY.md's "Hermes capability governance" section for the full capability matrix (Section 8's required table). **No JARVIS-side capability-policy object was added** (Section 9): investigated first, per this sprint's own charter, whether JARVIS's running server can configure any of `command_allowlist`/`approvals.deny`/`unattended_mode` — it cannot. Hermes's `api_server` HTTP contract (`POST /v1/runs`, `GET /v1/runs/:id/events`, `POST /v1/runs/:id/approval`, `POST /v1/runs/:id/stop` — the complete surface per `agent-adapter.ts`) has no endpoint for any of them; they are static `config.yaml` entries set by the operator, outside any request/mission JARVIS's code ever makes. A JARVIS-side object describing them would control nothing real — the "decorative policy layer" this sprint's own rules forbid. `tools/executor.ts` is unchanged; no second executor was created.
+
+### 11. Live verification
+
+Test 1 (allowed harmless operation) and Test 2 (blocked harmless-in-effect operation, since the gate function alone was exercised — nothing was ever actually executed) are the two experiments above showing `approved=True`/`approved=False` respectively, both against Hermes's real installed 0.21.0 code. Test 3 (filesystem side effect) was not independently re-run this sprint — Sprint 06 already live-confirmed ordinary writes are ungated (file genuinely created, zero gate events), and this sprint's source re-read of `file_tools_write_guards.py`'s complete write path confirms nothing has changed. Test 4 (shell command) is the dangerous-pattern experiment above. A true end-to-end SSE-wire reproduction (submit via `/v1/runs`, observe `approval.request`/`tool.started` on the real wire) was attempted first and abandoned only after confirming, from Hermes's own gateway log, that the failure was the model backend, not Hermes's approval logic — the gateway itself (`GET /health`) was live, healthy, and correctly reachable throughout.
+
+### 12. Experiment record format
+
+Used verbatim above (Section 2 & 3).
+
+### 13. Planner gate
+
+**BLOCKED.** Unchanged from Sprint 06. The reason is now precise rather than provisional: shell/`execute_code` delegation could plausibly be scoped safely today (Hermes's own default already blocks the dangerous subset, and `approvals.deny`/`unattended_mode` are available, real, unused levers for tightening it further) — but any Planner objective that might need to write a file or reach the network has **zero** Hermes-side governance today, observed or prevented only after Sprint 06's audit-trail fix, never gated in advance.
+
+### 14–16. Sandbox scope, Planner, OmniRouter
+
+None implemented. Not attempted. No file under `src/server/missions/planner*`, no sandbox/container code added, `src/server/omnirouter/` untouched (`git status` clean confirms this directly, not by assertion).
+
+### 17. Tests
+
+**None added.** Justification, not an oversight: this sprint changed no JARVIS runtime behavior — `orchestrator.ts`'s existing `onToolRequest`/`onToolEvent` wiring already correctly routes every real signal Hermes exposes (verified: `agent-adapter.test.ts` already asserts both "gates on approval.request" and "forwards tool.started/tool.completed... even when Hermes never sent an approval.request" — Sprint 06's own regression coverage, unchanged and still passing). The live experiments this sprint ran exercise Hermes's own installed Python source directly and were deliberately kept out of the repository (disposable scratch script, not committed) — wiring them into `npm test` would make the ordinary test suite depend on a live Hermes installation and its bundled venv, which this sprint's own rules (Section 17) explicitly forbid. 193/193 existing tests still pass unmodified.
+
+### 18. Documentation
+
+Updated: `JARVIS_MASTER_MEMORY.md` (new "Hermes capability governance — the (1) path actually tried" section: findings, capability matrix, governance/Planner/external-boundary decisions, and why no JARVIS-side policy object was added), `JARVIS_PHASE_STATUS.md` (Phase 02, Phase 05, Phase 07 dependency notes; header; Summary section — including correcting a stale "genuinely unblocked" claim about Phase 07 that had stood since before Sprint 06's own findings), `JARVIS_CURRENT_STAGE.md` (this section).
+
+### 19. Remaining gaps (honest, not exhaustive-for-its-own-sake)
+
+- File write (ordinary path), ordinary shell commands, and network/web-tool calls: confirmed, not merely assumed, to have no Hermes-side governance lever of any kind. Closing this requires either an external process/sandbox boundary or deliberately scoping any future autonomous delegation away from these categories.
+- `approvals.deny`/`unattended_mode` are real and available but **still not applied** in this installation's live `config.yaml` — Sprint 06 found this; Sprint 07 proved the mechanism works but did not turn it on (an operator/deployment decision, out of an investigation sprint's own scope to make unilaterally).
+- A true end-to-end live SSE-wire reproduction of this sprint's findings (submitting a real mission through JARVIS's own `/api/missions`, as Sprint 06 did) was not achieved — blocked by this session's unreachable local model backend, an environmental limitation outside this sprint's charter to fix. The in-process method used instead exercises the identical, real gate function `terminal_tool.py` calls, so the finding is not weaker evidence about Hermes's approval logic specifically — but it does not re-confirm JARVIS's own `onToolRequest`/`onToolEvent` wiring against dangerous-command traffic specifically (only against Sprint 06's already-tested read/write/harmless-shell categories).
+- MCP/plugin-flagged tool calls, browser tools, and image/video generation tools remain UNVERIFIED (Sprint 06's own scope boundary, not re-investigated this sprint — outside this sprint's charter, which named `command_allowlist`/`approvals.deny`/`unattended_mode` specifically).
+
+---
 
 ## Production Sprint 06 — Hermes Capability Boundary + Tool Visibility Investigation (2026-09-22)
 
