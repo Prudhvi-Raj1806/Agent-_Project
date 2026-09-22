@@ -53,6 +53,19 @@ function parseAgentUsage(usage: unknown): HermesUsage | undefined {
  * Hermes omits `request_id` (single pending approval, FIFO resolution) the
  * decision is sent back without one rather than inventing an id Hermes
  * would not recognize.
+ *
+ * Separately, api_server also emits `tool.started`/`tool.completed` for
+ * EVERY tool call — including ones its own approval system never flags
+ * (verified live, Sprint 06: read/write/shell calls that produce zero
+ * `approval.request` frames still produce these two). This adapter forwards
+ * them through `callbacks.onToolEvent` — the same generic observation
+ * channel `http-adapter.ts` already used — giving JARVIS real visibility
+ * into every Hermes-executed tool call. This is observation, not control:
+ * unlike `approval.request`, Hermes does not pause or wait for a response to
+ * `tool.started` — nothing here can block or deny a call Hermes's own
+ * approval system didn't already choose to gate. See
+ * JARVIS_MASTER_MEMORY.md's Hermes capability-boundary section for the full
+ * trust-boundary implication.
  */
 export class HermesAgentAdapter implements HermesAdapter {
   readonly mode = "real" as const;
@@ -140,6 +153,17 @@ export class HermesAgentAdapter implements HermesAdapter {
     }
 
     let lastPercent = 0;
+    /**
+     * Correlates a `tool.completed` frame back to its `tool.started` frame.
+     * Hermes Agent's api_server wire (verified live, Sprint 06) carries no
+     * per-call id for these two events — only `approval.request` has
+     * `request_id`. Tool calls observed on this wire are strictly sequential
+     * (one `tool.started`/`tool.completed` pair completes before the next
+     * starts), so a single slot is sufficient; this is an id JARVIS
+     * synthesizes for its own event correlation, not data Hermes reports —
+     * do not read it as a Hermes-native call id.
+     */
+    let lastToolCallId: string | undefined;
     for await (const frame of parseSseStream(res.body)) {
       const event = frame as Record<string, unknown>;
       switch (event.event) {
@@ -147,6 +171,44 @@ export class HermesAgentAdapter implements HermesAdapter {
           const delta = typeof event.delta === "string" ? event.delta : "";
           lastPercent = Math.min(90, lastPercent + 5);
           callbacks.onProgress(lastPercent, delta || "Hermes Agent is working…");
+          break;
+        }
+        case "tool.started": {
+          // Observation only — not a gate. Hermes does not wait for a
+          // response to this frame the way it waits for `approval.request`;
+          // by the time JARVIS sees this, the tool may already be running.
+          // See JARVIS_MASTER_MEMORY.md's Hermes capability-boundary section
+          // (Sprint 06) for why this closes a visibility gap, not a control
+          // one.
+          const toolName = typeof event.tool === "string" ? event.tool : "unknown";
+          const timestamp = typeof event.timestamp === "number" ? event.timestamp : Date.now();
+          lastToolCallId = `${runId}:${toolName}:${timestamp}`;
+          callbacks.onToolEvent?.({ type: "tool.started", toolCallId: lastToolCallId, toolName, input: event.preview });
+          break;
+        }
+        case "tool.completed": {
+          const toolName = typeof event.tool === "string" ? event.tool : "unknown";
+          const toolCallId = lastToolCallId ?? `${runId}:${toolName}:${Date.now()}`;
+          if (event.error) {
+            // Hermes Agent's own `tool.completed` frame only ever carries a
+            // boolean `error` flag on this wire, never an error message —
+            // there is nothing further to report without inventing detail
+            // Hermes didn't send.
+            callbacks.onToolEvent?.({
+              type: "tool.failed",
+              toolCallId,
+              toolName,
+              error: "Hermes Agent reported this tool call as failed (no further detail provided on this event).",
+            });
+          } else {
+            callbacks.onToolEvent?.({
+              type: "tool.completed",
+              toolCallId,
+              toolName,
+              output: typeof event.duration === "number" ? { durationSeconds: event.duration } : undefined,
+            });
+          }
+          lastToolCallId = undefined;
           break;
         }
         case "approval.request": {

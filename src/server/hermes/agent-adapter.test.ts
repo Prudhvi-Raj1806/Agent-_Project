@@ -36,6 +36,7 @@ type FixtureBehavior =
   | "completed-with-usage"
   | "completed-no-usage"
   | "approval-gate"
+  | "tool-events-unflagged"
   | "run-failed"
   | "run-cancelled"
   | "hang-forever";
@@ -99,6 +100,18 @@ function createFixtureServer(behavior: FixtureBehavior) {
           }
           res.end();
         });
+        return;
+      }
+      if (behavior === "tool-events-unflagged") {
+        // Shape verified live against a real Hermes Agent 0.21.0 api_server
+        // run, Sprint 06: no `approval.request` frame at all, just these two
+        // — no per-call id on the wire, unlike approval.request's request_id.
+        send({ event: "tool.started", run_id: "run-1", timestamp: 1000, tool: "search_files", preview: "*.txt" });
+        send({ event: "tool.completed", run_id: "run-1", timestamp: 1001, tool: "search_files", duration: 1.2, error: false });
+        send({ event: "tool.started", run_id: "run-1", timestamp: 1002, tool: "terminal", preview: "date" });
+        send({ event: "tool.completed", run_id: "run-1", timestamp: 1003, tool: "terminal", duration: 0.5, error: true });
+        send({ event: "run.completed", run_id: "run-1", output: "done" });
+        res.end();
         return;
       }
       // "completed-with-usage" / "completed-no-usage"
@@ -249,6 +262,27 @@ describe("HermesAgentAdapter (against a fixture speaking Hermes Agent's real api
       adapter.execute(baseInput(), { signal: new AbortController().signal, onProgress: () => {} })
     ).rejects.toThrow(/denied/i);
     expect(fixture.getReceivedApprovals()).toEqual([{ requestId: "req-1", choice: "deny" }]);
+  });
+
+  it("forwards tool.started/tool.completed through onToolEvent even when Hermes never sent an approval.request for them (Sprint 06)", async () => {
+    server = createFixtureServer("tool-events-unflagged").server;
+    const baseUrl = await listen(server);
+    const adapter = new HermesAgentAdapter(baseUrl, "test-key");
+
+    const toolEvents: Array<{ type: string; toolName: string }> = [];
+    const result = await adapter.execute(baseInput(), {
+      signal: new AbortController().signal,
+      onProgress: () => {},
+      onToolEvent: (e) => toolEvents.push({ type: e.type, toolName: e.toolName }),
+    });
+
+    expect(result.output).toBe("done");
+    expect(toolEvents).toEqual([
+      { type: "tool.started", toolName: "search_files" },
+      { type: "tool.completed", toolName: "search_files" },
+      { type: "tool.started", toolName: "terminal" },
+      { type: "tool.failed", toolName: "terminal" },
+    ]);
   });
 
   it("surfaces a run.failed event as a failure, never a fabricated success", async () => {
