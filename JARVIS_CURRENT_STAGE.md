@@ -1,8 +1,124 @@
 # JARVIS Current Stage
 
-Snapshot of actual implementation state as of 2026-09-22 (end of session), after Production Sprint 07 (Hermes Capability Governance — investigation only, no code changed). Prior snapshot, earlier the same day, was after Production Sprint 06 (Hermes Capability Boundary + Tool Visibility Investigation); before that, Production Sprint 05 (Real Hermes Runtime Verification); before that, 2026-09-21, Production Sprint 04 (Security Boundary Hardening); before that, Production Sprint 03 (Verification v2 + Safe Recovery Foundations); before that, Production Sprint 02 (ToolExecutor as the Single Side-Effect Execution Boundary); before that, Production Sprint 01 (Mission Integrity + Unified Tool Boundary); before that, real Hermes verification (Phase 02), full budget enforcement + checkpoints (Phase 01), and the World State reconciliation module (Phase 03); before that, step-budget enforcement alone; before that, 2026-09-20, after the Performance Stabilization sprint. This document is a factual snapshot, not a plan — see `JARVIS_PHASE_STATUS.md` for phase-by-phase roadmap tracking and `JARVIS_MASTER_MEMORY.md` for durable architecture decisions.
+Snapshot of actual implementation state as of 2026-09-23 (end of session), after Production Sprint 08 Part I (External Hermes Execution Boundary — real code added, see section below). Prior snapshot, 2026-09-22 (end of session), after Production Sprint 07 (Hermes Capability Governance — investigation only, no code changed). Before that, earlier the same day, was after Production Sprint 06 (Hermes Capability Boundary + Tool Visibility Investigation); before that, Production Sprint 05 (Real Hermes Runtime Verification); before that, 2026-09-21, Production Sprint 04 (Security Boundary Hardening); before that, Production Sprint 03 (Verification v2 + Safe Recovery Foundations); before that, Production Sprint 02 (ToolExecutor as the Single Side-Effect Execution Boundary); before that, Production Sprint 01 (Mission Integrity + Unified Tool Boundary); before that, real Hermes verification (Phase 02), full budget enforcement + checkpoints (Phase 01), and the World State reconciliation module (Phase 03); before that, step-budget enforcement alone; before that, 2026-09-20, after the Performance Stabilization sprint. This document is a factual snapshot, not a plan — see `JARVIS_PHASE_STATUS.md` for phase-by-phase roadmap tracking and `JARVIS_MASTER_MEMORY.md` for durable architecture decisions.
 
 Labels used below follow the project's Honesty Rule: **REAL** (genuinely implemented and exercised), **MOCK** (explicitly simulated, self-labeled as such), **SCHEMA-ONLY** (table exists, no code touches it), **UNVERIFIED** (real code path exists but hasn't been proven against a live external dependency).
+
+## Production Sprint 08 Part I — External Hermes Execution Boundary (2026-09-23)
+
+**Charter:** close the write/shell/network Hermes-side governance gap Sprints 06/07 established (ordinary writes, ordinary shell commands, and network/web-tool calls have zero Hermes-side lever, configured or not) by building the smallest real EXTERNAL execution boundary appropriate to a Windows dev machine — no Docker/Kubernetes/custom sandbox infra. Part III (UI performance) is a separate, untouched track.
+
+### 0. Baseline (confirmed before any change, not re-verified from scratch)
+
+HEAD `1f25929`, `git status` clean, `npx tsc --noEmit` clean, `npm run lint` clean, `npm test` → 193/193 passing (36 files), `npm run build` succeeds. Hermes Agent v0.21.0 installed, read-only reference material this sprint (not touched).
+
+### 1. Technology chosen, and why
+
+Evaluated: Docker (rejected — explicitly out of scope, and the sprint's own gap is about write/shell/network governance on a system that already runs Node natively, not about environment reproducibility); Windows Job Objects for real CPU/memory/process-count limits (evaluated, NOT used this sprint — getting a real Job Object handle from Node requires either a native addon or a compiled helper process, and no maintained option was verified available/buildable this session; using one speculatively without verifying it actually enforces a limit would violate the Honesty Rule just as much as not having one); a restricted Node `child_process` + workspace path-scoping + `fs` wrapper + an executable allowlist + `taskkill /pid /t /f` for real tree-kill (CHOSEN). Rationale: this combination is verifiably real for the two properties that matter most for the identified gap — (a) a write cannot escape its assigned workspace (live-tested path traversal and symlink/junction-style escape via `resolveWithinWorkspace`'s canonicalize + realpath-verify, not a bare string compare) and (b) a runaway or malicious process is genuinely terminated on timeout or cancellation, not just abandoned (live-tested: a real spawned Node process running a 30s sleep was confirmed gone well before its own timer would have fired). It is honestly weaker than Job Objects on resource limits (no real memory/CPU ceiling) and weaker than a firewall/proxy on network isolation for spawned processes (see below) — both stated as EXTERNAL LIMITATIONS, not silently omitted.
+
+**What this does NOT cover (EXTERNAL LIMITATION, stated plainly):**
+- No real CPU/memory ceiling — only a timeout. `ResourceLimits.maxMemoryMb` is accepted, never enforced (`src/server/boundary/process-runner.ts`'s doc comment).
+- No real network isolation for a spawned child process's own sockets — `network-policy.ts`'s `checkNetworkAllowed` only gates a direct fetch the boundary itself performs. A shell command that internally calls `curl`/opens sockets is NOT observed or blocked by this implementation. Concrete recommendation if this is ever needed: a mandatory local allowlisting HTTP(S) proxy (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` env injection) PLUS an outbound Windows Firewall rule scoped to the boundary's spawned process tree — the proxy alone is bypassable by a process that opens raw sockets and ignores the env vars; only the firewall rule closes that case. Neither built this sprint.
+- Not wired into `missions/orchestrator.ts`'s `handleToolRequest` — see the honest limitation list in JARVIS_PHASE_STATUS.md's Phase 05 Sprint 08 section for exactly why (no live Hermes write/shell/network tool-call shape was available to map against this session either, same unreachable-model-backend issue as Sprint 07) and the precise next step to close it.
+
+### 2. Execution contract added
+
+`src/server/boundary/types.ts`: `CapabilityRequest` (id, missionId, capability, kind: `filesystem-write | shell-command | network-request`, args, workspaceRoot, filesystemPolicy: `{mode: workspace-only|read-only|none, extraAllowedPaths?}`, processPolicy: `{allowedExecutables, env?}`, networkPolicy: `{mode: none|allowlist, allowlist?}`, limits: `{timeoutMs, maxMemoryMb?}`, risk, signal?, executionIdentityKey?) and `BoundaryExecutionResult` (requestId, ok, exitCode, stdout, stderr, startedAt/endedAt/durationMs, failureReason?, failureMessage?). `BoundaryFailureReason` = `TIMEOUT | PATH_ESCAPE | EXECUTABLE_NOT_ALLOWED | NETWORK_NOT_ALLOWED | RESOURCE_EXHAUSTED | BOUNDARY_CRASH | CANCELLED`, mapped onto the existing `verification/classification.ts` taxonomy by `boundaryFailureToClassification()` rather than a second taxonomy.
+
+### 3. Lifecycle
+
+Mission → JARVIS Policy (`security/tool-policy.ts`, unchanged) → Hermes reasoning → capability request → JARVIS authorization (`tools/executor.ts`'s `evaluateGovernedToolCall`, unchanged) → **NEW: `boundary/index.ts`'s `executeCapability()`** → actual resource (real child process / real file write / real allowlist-gated fetch) → observation (`BoundaryExecutionResult`) → verification (`verification/verifier.ts`, unchanged — a boundary execution completing with `ok: true` is NOT treated as verified success; nothing in `boundary/` calls `decideMissionCompletion` or fabricates a `VerificationResult`). The boundary sits strictly downstream of the existing ALLOW verdict — it never re-evaluates policy itself.
+
+### 4. Escape tests — real, run against disposable temp workspaces, never the repo
+
+All in `src/server/boundary/boundary.escape.test.ts`, 8 assertions, all passing:
+
+| Test | Attack | Expected | Observed | Result |
+|---|---|---|---|---|
+| (a) path traversal | write to `../../escape.txt` relative to workspace | blocked | `PATH_ESCAPE`; file confirmed absent outside workspace | PASS |
+| (b) absolute escape | write to an absolute path in a sibling temp dir | blocked | `PATH_ESCAPE`; file confirmed absent | PASS |
+| (c) unauthorized process | spawn `node` with only `cmd.exe` allowlisted | blocked | `EXECUTABLE_NOT_ALLOWED`; control case (node allowlisted) ran and produced real stdout | PASS |
+| (d) unauthorized network host | request `evil.example.com` against an allowlist containing only `api.example.com` | blocked | `NETWORK_NOT_ALLOWED` | PASS |
+| (e) timeout kill | 500ms timeout against a process sleeping 30s | process tree actually terminated | result resolved in ~1s (not ~30s), `failureReason: TIMEOUT` — only possible if the process was genuinely killed, not abandoned | PASS |
+
+A sixth test explicitly documents, in code, the network-for-spawned-processes limitation rather than asserting a guarantee this implementation doesn't provide.
+
+### 5. Verification run
+
+`npm test`: **37 files, 201 tests, all passing** (193 prior + 8 new). `npx tsc --noEmit`: clean. `npm run lint`: clean. `npm run build`: succeeds, no new routes (this is a server-internal module, no API route added yet since it isn't wired into the orchestrator).
+
+### 6. Files changed
+
+New: `src/server/boundary/types.ts`, `workspace.ts`, `network-policy.ts`, `process-runner.ts`, `index.ts`, `boundary.escape.test.ts`. Docs: `JARVIS_MASTER_MEMORY.md`, `JARVIS_PHASE_STATUS.md`, `JARVIS_CURRENT_STAGE.md`. No existing source file was modified — this sprint is additive only (the integration into `orchestrator.ts` was deliberately left undone; see limitation 1 above).
+
+### 7. Planner gate
+
+**Still BLOCKED.** A real, tested enforcement primitive now exists, but nothing calls it from the real Hermes tool-request path yet — see JARVIS_PHASE_STATUS.md's Phase 07 Sprint 08 dependency note for the precise, narrowed reason.
+
+---
+
+## Production Sprint 08 Part III — JARVIS UI Resource Consumption (2026-09-23)
+
+**Charter:** Part I (above) is untouched by this work — separate track, `src/server/boundary/` left exactly as it was. This part is frontend/UI-adjacent only: profile the built (not `next dev`) UI for wasted polling/render/animation work already sitting on top of the 2026-09-20 Performance Stabilization sprint's `systeminformation` cache-and-dedupe fix, and fix what's actually found, not what's assumed.
+
+### 0. Baseline re-confirmed (before any change)
+
+HEAD `1f25929` + Part I's uncommitted `src/server/boundary/` (left alone). `npm test` → **37 files, 201/201 passing**. `npx tsc --noEmit` → clean. `npm run lint` → clean. `npm run build` → succeeds, same route table as Part I's report (music static, everything else dynamic). Matches the numbers Part I already recorded — no drift.
+
+### 1. Measurement method and its limits
+
+Measured against a real **production** build (`npm run build` then `npm run start -p <port>`), not `next dev` — dev-mode overhead (React refresh, unminified bundles, on-demand compilation) is explicitly not representative and none of the numbers below come from it. Tools actually available and used this session:
+- Source inspection (`grep`/`read`) to enumerate every `setInterval`/`EventSource`/`useEffect` in `src/`, cross-checked against `useEffect` cleanup bodies for missing `clearInterval`/`.close()`.
+- The Claude Browser pane (Chromium-backed) driving the production server, with its network-request log (`read_network_requests`) used as a request-count-over-time proxy for polling behavior — the only concretely measurable "before/after" number this session.
+- Direct `document.hidden` inspection and a manually dispatched `visibilitychange` event, used to force the pane between "hidden" and "visible" states (the pane reports the tab as backgrounded by default, which is itself informative — see below), to verify pause/resume behavior deterministically rather than by chance timing.
+
+**Not measurable this session (stated plainly, not estimated):** browser DevTools Performance/Memory tabs and `process.memoryUsage()`/RSS-over-time were not available through the Browser-pane tool surface actually exposed here — no heap snapshot, no flamegraph, no GPU/paint profiling. Framer Motion animation-loop cost is moot (see finding below: the package isn't a dependency at all, so there's nothing to profile there). CPU% of the Node server process under sustained load was not captured (no OS-level process sampler was invoked). Any number not explicitly given below with its measurement method is **not measured**, not merely omitted.
+
+### 2. Hotspots found (evidence-cited)
+
+- **Real, confirmed duplicate polling — `useSpotifyPlayer()`.** `src/lib/clap/clap-detector-context.tsx:62` calls `useSpotifyPlayer()` inside `ClapDetectorProvider`, which `src/components/shell/app-shell.tsx:8-9` mounts at the **app root**, active on every route regardless of clap-wake being enabled or Spotify being connected. Before this sprint, `src/lib/spotify/use-spotify-player.ts` started its own independent `setInterval(refresh, 5000)` (2 fetches per tick: `/api/spotify/status` + `/api/spotify/now-playing`) on every call site. `JARVIS_MASTER_MEMORY.md`'s Performance Stabilization section had previously concluded this was "not a real duplicate-polling bug today" because the three *page-level* consumers (`NowPlayingPanel`, `FocusMusicPanel`, `MusicView`) never coexist on one route — **that conclusion missed the root-mounted `ClapDetectorProvider` call site**, which is not page-scoped and is therefore always polling, on top of whichever page-level consumer is also mounted. On `/` (home, via `NowPlayingPanel`) or `/music`, that was 2 independent 5s intervals running concurrently — 4 requests/5s instead of 2. This is corrected here rather than left standing, per this project's own "preserve inconvenient findings" rule.
+- **`src/components/system/system-monitor-view.tsx:52-68` (pre-fix): 5s poll to `/api/system/detail`, no visibility awareness.** Verified live: with the page's tab backgrounded (`document.hidden === true`, the pane's actual default state), the interval kept firing — a `/system` tab left open and unfocused would keep re-triggering the server's (cached-but-not-free) `systeminformation` snapshot every 5s indefinitely.
+- **`src/components/shell/notification-bell.tsx` (pre-fix): 15s poll to `/api/notifications`, mounted in `TopBar` (app root, every route), no visibility awareness.** Same category of issue as the system monitor, lower frequency, but running on literally every route forever.
+- **No other leak or duplication found.** Every `EventSource`/`setInterval` site was individually inspected: `use-live-missions.ts` (mission SSE, keyed on the active-id set, closes all sources on cleanup — correct), `mission-inspector.tsx` (SSE, closes on unmount — correct), `use-clap-detector.ts` (mic `AudioContext`/`requestAnimationFrame` loop, fully torn down — `cancelAnimationFrame`, `audioContext.close()`, mic tracks stopped — on disable/unmount, and opt-in/off-by-default), `use-clock.ts` (30s tick via `useSyncExternalStore`, trivial), `top-bar.tsx`'s weather fetch (one-shot, not a poll), `music-view.tsx`'s 1s local-progress ticker (only runs while a track is actually playing, cleaned up correctly). No `framer-motion` import exists anywhere in `src/` (`package.json` doesn't list it as a dependency either) — the "continuous animation loop" hotspot category named in the task brief does not apply to this codebase; the presence ring and other motion are CSS `transition`/`transform`, already cheap, untouched.
+- **No wasted-re-render pattern found that met the bar for a `memo`/`useMemo` fix** (evidence required, not blind wrapping, per the task's own rule) — none of the inspected components showed a parent passing a fresh inline object/function into a child that re-renders expensively as a result.
+
+### 3. Before/after — what was actually measurable
+
+| Metric | Method | Before | After |
+|---|---|---|---|
+| Spotify poll requests/5s while backgrounded, on a route where `ClapDetectorProvider` + a page-level `useSpotifyPlayer()` consumer both mount (`/`) | Browser-pane network log, forced `document.hidden = true` | 2 independent intervals × 2 fetches = up to 4 req/5s (not directly re-measured pre-fix — the code path was removed before a live "before" capture could be taken against the old code; this is a source-verified count, not a re-run measurement — stated honestly rather than fabricating a captured baseline) | 1 shared interval × 2 fetches = 2 req/5s, live-confirmed: exactly 2 `/api/spotify/status` calls observed at mount, then **zero** further requests over a 10s backgrounded window |
+| `/api/system/detail` requests while `/system` tab backgrounded | Browser-pane network log, `document.hidden` forced true then dispatched back to false | N/A (page not polled pre-fix without visibility gating — old code would have kept polling; not separately re-captured against the old code, same honesty caveat as above) | 0 requests over an 8s hidden window; 3 requests over the following 6s once `visibilitychange` was dispatched with `hidden: false` (1 immediate catch-up + interval ticks) — pause/resume both live-confirmed |
+| Spotify/notification polling resume on visibility regain | Same dispatched-event method | — | Confirmed: forcing `hidden: false` on `/` produced exactly 2 new `/api/spotify/status` requests (immediate refresh from both the Spotify and notification visibility handlers) within 2s |
+| Build/tsc/lint/test | `npm run build` / `npx tsc --noEmit` / `npm run lint` / `npm test` | build ok, tsc clean, lint clean, 201/201 (Part I baseline) | build ok, tsc clean, lint clean, 201/201 (unchanged — see below) |
+| RSS/CPU of the prod server process, DevTools heap/paint profiling | Not available via the tool surface exposed this session | not measured | not measured |
+
+The "before" duplicate-request count for the Spotify hook is source-verified (two independent `setInterval` call sites, each provably issuing 2 fetches per tick from reading the pre-fix code) rather than captured live against the unmodified app, because the fix was written and the old code was gone before the browser check ran. Stated explicitly per the task's own anti-fabrication rule — this is not being presented as a captured baseline.
+
+### 4. Changes made
+
+- `src/lib/spotify/player-context.tsx` — `SpotifyPlayerProvider` now owns the single shared now-playing poll (`status`, `nowPlaying`, `deviceId`, `refresh`) via context, visibility-aware (pauses `setInterval` on `document.hidden`, does one immediate `refresh()` + resumes on `visibilitychange` back to visible).
+- `src/lib/spotify/use-spotify-player.ts` — rewritten as a thin per-consumer wrapper: reads `status`/`nowPlaying`/`deviceId` from context instead of running its own poll; keeps `play`/`pause`/`next`/`previous`/`setVolume`/`seek` and the device-transfer retry logic unchanged in behavior.
+- `src/components/system/system-monitor-view.tsx` — 5s poll to `/api/system/detail` made visibility-aware (same pause/resume/catch-up pattern).
+- `src/components/shell/notification-bell.tsx` — 15s poll to `/api/notifications` made visibility-aware (same pattern).
+- No change to `use-live-missions.ts`, `mission-inspector.tsx`, event bus, world-state service, or any Hermes/security/verification/boundary code.
+
+### 5. Functionality preserved — how verified
+
+Ran the production build (`npm run start`) and drove it with the Browser-pane tool: confirmed the home page, `/system`, and navigation between routes render correctly; confirmed the visibility-aware polls genuinely resume (not just theoretically) by forcing a `visibilitychange` event and observing new network requests fire within 2s each time. Did not re-run a live Hermes mission this session (same unreachable-model-backend environment limitation Sprints 05/07 already recorded — `HermesMockAdapter` default was not separately exercised here since `use-live-missions.ts`/`mission-inspector.tsx` were untouched by this part's changes) — mission-SSE correctness rests on the unmodified orchestrator test suite (7/7 passing, unchanged) rather than a new live click-through, which is a real limitation of this verification, not a claim of having tested it live.
+
+### 6. Test/typecheck/lint/build after changes
+
+`npm test`: **37 files, 201/201 passing** (no new automated tests added — see limitation below). `npx tsc --noEmit`: clean. `npm run lint`: clean. `npm run build`: succeeds, identical route table to Part I's report.
+
+### 7. Remaining gaps / honest limitations
+
+- **No new automated test was added for the visibility-aware polling behavior.** This repo's `vitest.config.ts` runs in `environment: "node"` with no DOM (`jsdom`) and no `@testing-library/react` dependency — every existing test in `src/lib`/`src/server` is pure-logic (e.g. `ClapTracker`, the `systeminformation` service), not a rendered-component test. Adding real DOM/React test infrastructure to write one hook test was judged out of proportion to this task's scope and risk profile (a new devDependency + config change, unrelated to the actual fix). The behavior was instead verified live against the running production build (see section 5) — a real but non-regression-guarded verification. Flagged here rather than silently skipped, and rather than writing a fake test that doesn't actually exercise `document.hidden`.
+- **The pre-fix duplicate-polling request count is source-verified, not live-captured** (see section 3) — the old code was already replaced before the live check ran.
+- **RSS/CPU/heap/paint profiling were not available this session** — see section 1. If a future sprint has access to Chrome DevTools' Performance/Memory tabs or an OS process sampler, that would be the natural way to get a real number for the system-monitor and Spotify fixes' actual CPU/memory savings, which this sprint can only argue for structurally (fewer timers, fewer requests), not quantify.
+- **A live Hermes mission was not exercised this session** to visually confirm mission-status/event-stream behavior end-to-end in the browser — rests on the unmodified, still-201/201-passing orchestrator/mission test suite instead (see section 5).
+- Server-side telemetry cost itself (`src/server/system/service.ts`'s `systeminformation` calls) was left untouched, per the task's own instruction to treat the 2026-09-20 fix as a floor, not a target — this sprint's system-monitor fix reduces how often the client *asks* for a snapshot while backgrounded, not the per-call cost of computing one.
+
+---
 
 ## Production Sprint 07 — Hermes Capability Governance + Existing Configuration Boundary (2026-09-22)
 
