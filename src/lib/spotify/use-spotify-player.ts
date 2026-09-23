@@ -1,55 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { SpotifyNowPlaying } from "@/server/spotify/types";
+import { useCallback, useState } from "react";
 import { useSpotifyDevice } from "./player-context";
 
-export type SpotifyStatus = "loading" | "not-configured" | "not-connected" | "connected";
+export type { SpotifyStatus } from "./player-context";
 
-const POLL_MS = 5_000;
-
+/**
+ * Thin per-consumer wrapper around the single shared poll owned by
+ * SpotifyPlayerProvider (see player-context.tsx) — status/nowPlaying/deviceId
+ * all come from context, so mounting this hook in multiple components (Music
+ * page, home Now Playing panel, focus panel, the clap-wake listener) no
+ * longer starts a duplicate 5s polling loop per mount.
+ */
 export function useSpotifyPlayer() {
-  const { deviceId } = useSpotifyDevice();
-  const [status, setStatus] = useState<SpotifyStatus>("loading");
-  const [nowPlaying, setNowPlaying] = useState<SpotifyNowPlaying | null>(null);
+  const { deviceId, status, nowPlaying, refresh } = useSpotifyDevice();
   const [actionError, setActionError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const statusRes = await fetch("/api/spotify/status");
-      const statusData = await statusRes.json();
-      if (!statusData.configured) {
-        setStatus("not-configured");
-        return;
-      }
-      if (!statusData.connected) {
-        setStatus("not-connected");
-        return;
-      }
-      const npRes = await fetch("/api/spotify/now-playing");
-      const npData = await npRes.json();
-      if (!npData.connected) {
-        setStatus("not-connected");
-        return;
-      }
-      setStatus("connected");
-      setNowPlaying({ isPlaying: Boolean(npData.isPlaying), track: npData.track ?? null, device: npData.device ?? null });
-    } catch {
-      setStatus((prev) => (prev === "connected" ? prev : "not-connected"));
-    }
-  }, []);
-
-  useEffect(() => {
-    // Deferred via setTimeout(0) rather than called directly, so the effect
-    // body itself never invokes a state-setting function synchronously —
-    // only ever from a timer callback (same shape as the SSE hooks).
-    const initial = setTimeout(refresh, 0);
-    const interval = setInterval(refresh, POLL_MS);
-    return () => {
-      clearTimeout(initial);
-      clearInterval(interval);
-    };
-  }, [refresh]);
 
   const runAction = useCallback(
     async (path: string, body?: unknown): Promise<{ ok: boolean; status: number; error?: string }> => {

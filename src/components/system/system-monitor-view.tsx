@@ -51,6 +51,8 @@ export function SystemMonitorView({ initialDetail }: { initialDetail: UiSystemDe
 
   useEffect(() => {
     let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
     async function refresh() {
       try {
         const res = await fetch("/api/system/detail");
@@ -60,10 +62,36 @@ export function SystemMonitorView({ initialDetail }: { initialDetail: UiSystemDe
         // Keep showing the last good snapshot rather than blanking the page.
       }
     }
-    const interval = setInterval(refresh, POLL_MS);
+
+    // Visibility-aware: a backgrounded tab left open on this page would
+    // otherwise keep re-triggering the (cached, but not free) systeminformation
+    // snapshot every 5s forever. Pause the poll while hidden and catch up with
+    // one immediate refresh the moment the tab becomes visible again.
+    function startPolling() {
+      if (interval !== null) return;
+      interval = setInterval(refresh, POLL_MS);
+    }
+    function stopPolling() {
+      if (interval === null) return;
+      clearInterval(interval);
+      interval = null;
+    }
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        refresh();
+        startPolling();
+      }
+    }
+
+    if (!document.hidden) startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

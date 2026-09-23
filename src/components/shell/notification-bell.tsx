@@ -52,11 +52,36 @@ export function NotificationBell() {
         .then((data) => setNotifications(data.notifications ?? []))
         .catch(() => {});
     };
+
+    // Mounted at the app root (TopBar), so this poll runs on every route
+    // forever unless paused while the tab is backgrounded.
+    let interval: ReturnType<typeof setInterval> | null = null;
+    function startPolling() {
+      if (interval !== null) return;
+      interval = setInterval(load, POLL_MS);
+    }
+    function stopPolling() {
+      if (interval === null) return;
+      clearInterval(interval);
+      interval = null;
+    }
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        load();
+        startPolling();
+      }
+    }
+
     const initial = setTimeout(load, 0);
-    const interval = setInterval(load, POLL_MS);
+    if (!document.hidden) startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       clearTimeout(initial);
-      clearInterval(interval);
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
