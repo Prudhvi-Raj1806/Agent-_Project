@@ -6,6 +6,7 @@ import type {
   MissionAgentAssignment,
   MissionBudget,
   MissionCheckpoint,
+  MissionDecision,
   MissionResult,
   MissionStatus,
   PendingToolApproval,
@@ -32,6 +33,7 @@ interface MissionRow {
   result: string | null;
   verification: string | null;
   pending_tool_approval: string | null;
+  decision: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -58,6 +60,7 @@ function rowToMission(row: MissionRow): Mission {
     result: fromJson<MissionResult | null>(row.result, null),
     verification: fromJson<VerificationResult | null>(row.verification, null),
     pendingToolApproval: fromJson<PendingToolApproval | null>(row.pending_tool_approval, null),
+    decision: fromJson<MissionDecision | null>(row.decision, null),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
@@ -84,6 +87,7 @@ const COLUMNS = [
   "result",
   "verification",
   "pending_tool_approval",
+  "decision",
   "created_at",
   "updated_at",
   "completed_at",
@@ -110,6 +114,7 @@ function missionToParams(mission: Mission): SQLInputValue[] {
     mission.result ? toJson(mission.result) : null,
     mission.verification ? toJson(mission.verification) : null,
     mission.pendingToolApproval ? toJson(mission.pendingToolApproval) : null,
+    mission.decision ? toJson(mission.decision) : null,
     mission.createdAt,
     mission.updatedAt,
     mission.completedAt,

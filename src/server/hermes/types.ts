@@ -1,15 +1,55 @@
 import type { RoutingDecision } from "@/server/omnirouter/types";
-import type { HermesHealth, HermesToolDecisionRequest, HermesToolEventFrame, HermesToolRequestFrame } from "./contract";
 
-export type HermesToolEvent = HermesToolEventFrame;
-export type HermesToolRequest = Omit<HermesToolRequestFrame, "type">;
-export type ToolDecision = HermesToolDecisionRequest;
+/**
+ * JARVIS's own generic tool-request/decision shape — the boundary between
+ * whichever real Hermes adapter is active and the orchestrator's policy
+ * gate. A real adapter (agent-adapter.ts) maps Hermes's own wire events
+ * (e.g. `approval.request`) onto this; it is not Hermes's wire format
+ * itself. Previously defined in the now-deleted contract.ts (JARVIS's
+ * invented, nothing-implements-it Hermes spec) — moved here because it's
+ * still needed, just no longer tied to that dead contract.
+ */
+
+export interface HermesHealth {
+  healthy: boolean;
+  version?: string;
+  latencyMs: number;
+}
+
+interface HermesToolBase {
+  toolCallId: string;
+  toolName: string;
+}
+
+export type HermesToolRequest = HermesToolBase & { input?: unknown };
+
+export type HermesToolEvent =
+  | (HermesToolBase & { type: "tool.started"; input?: unknown })
+  | (HermesToolBase & { type: "tool.completed"; output?: unknown })
+  | (HermesToolBase & { type: "tool.failed"; error: string });
+
+export interface ToolDecision {
+  decision: "allow" | "deny";
+  reason?: string;
+}
 
 export interface HermesExecuteInput {
   missionId: string;
   objective: string;
   routing: RoutingDecision;
-  /** Progress percent to resume from (0 for a fresh run). */
+  /**
+   * Prior mission context to fold into the prompt text. Hermes has no
+   * verified cross-run resume primitive (architecture doc §18) — passing
+   * `fromPercent` alone, as earlier code did, silently restarts the
+   * objective from scratch on resume. `session_id` is now a documented
+   * `POST /v1/runs` field (per Hermes's current api-server docs) and
+   * agent-adapter.ts passes it when available, but whether it actually
+   * restores history is unconfirmed against the still-open-looking
+   * GitHub issue #84406 — so this text-folding fallback stays mandatory,
+   * not optional, until that's verified live.
+   */
+  priorContext?: string;
+  /** Progress percent to resume from (0 for a fresh run) — advisory only; see priorContext. */
   fromPercent?: number;
   allowedTools?: string[];
   forbiddenActions?: string[];
@@ -46,5 +86,3 @@ export interface HermesAdapter {
   execute(input: HermesExecuteInput, callbacks: HermesExecuteCallbacks): Promise<HermesResult>;
   checkHealth(): Promise<HermesHealth>;
 }
-
-export type { HermesHealth } from "./contract";

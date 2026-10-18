@@ -1,6 +1,5 @@
 import { logger } from "@/server/logging/logger";
-import type { HermesHealth } from "./contract";
-import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesResult } from "./types";
+import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesHealth, HermesResult } from "./types";
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

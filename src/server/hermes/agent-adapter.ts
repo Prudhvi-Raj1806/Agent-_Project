@@ -1,8 +1,7 @@
 import { logger } from "@/server/logging/logger";
-import type { HermesHealth } from "./contract";
 import { HermesError } from "./errors";
 import { parseSseStream } from "./sse";
-import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesResult } from "./types";
+import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesHealth, HermesResult } from "./types";
 
 /**
  * Adapter for a real, locally-running Hermes Agent
@@ -18,26 +17,44 @@ import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesR
  *   echo "API_SERVER_KEY=<openssl rand -hex 32>" >> <hermes config env-path>
  *   hermes gateway run   (not `hermes serve` — that's the separate dashboard backend)
  *
- * Verified against Hermes Agent 0.21.0's own source
- * (gateway/platforms/api_server.py, api_server_runs.py):
- *   POST   /v1/runs                       {input, model?} -> {run_id}
- *   GET    /v1/runs/:id                   poll status
+ * Originally written against Hermes Agent 0.21.0's own source
+ * (gateway/platforms/api_server.py, api_server_runs.py); re-checked against
+ * Hermes's current official api-server docs (hermes-agent.nousresearch.com)
+ * on 2026-10-18 and corrected where they disagreed:
+ *   POST   /v1/runs                       {input, session_id?} -> {run_id, status}
+ *   GET    /v1/runs/:id                   poll status (session_id, model, output, usage, pending_controls)
  *   GET    /v1/runs/:id/events            SSE: {event, run_id, ...fields}
- *   POST   /v1/runs/:id/approval          {choice: "once"|"deny"|"session"|"always", request_id?}
+ *   POST   /v1/runs/:id/approval          {request_id, execution_generation, choice: "once"|"deny"}
  *   POST   /v1/runs/:id/stop
  * Every request needs `Authorization: Bearer <API_SERVER_KEY>`. SSE frames are
  * plain `data: <json>\n\n` (no `event:` line), so JARVIS's own `parseSseStream`
- * reads them as-is. The event's own type lives under the `event` key, not `type`
- * — do not confuse this with JARVIS's HermesStreamFrame.type from contract.ts.
+ * reads them as-is. The event's own type lives under the `event` key, not `type`.
+ *
+ * Two corrections from the 2026-10-18 re-check:
+ *   1. `execution_generation` is REQUIRED on the approval call (the docs
+ *      say a stale/missing generation gets HTTP 409) — the original version
+ *      of this file omitted it. The SSE `approval.request` event is assumed
+ *      to carry it; if a live server's event omits it, this needs another look.
+ *   2. The docs confirm only `once`/`deny` as approval choices. `session`/
+ *      `always` (claimed above from 0.21.0 source) are UNCONFIRMED against
+ *      current docs — left out of the type below rather than sent blind.
+ *
+ * `session_id` on submit is new information not yet reconciled with
+ * architecture doc §18's "session-continuity gap" (GitHub issue #84406,
+ * about the `X-Hermes-Session-Id` HEADER being ignored on `/v1/runs` — a
+ * different mechanism than this documented session_id BODY field, and
+ * unclear whether this is the fix for that issue or a separate, equally
+ * unverified path). This adapter sends it defensively (keyed to missionId,
+ * stable across a mission's runs) but does NOT rely on it: `priorContext`
+ * is still folded into the prompt on every run regardless, per §18's
+ * standing instruction, until session_id is confirmed to work against a
+ * live instance.
  *
  * Hermes Agent's tool-approval events come from its own terminal/plugin
- * approval system (`tools/approval.py`), not a generic {toolName, input}
- * shape: a pending approval carries `command` (shell) or `tool_name`
- * (plugin) plus an optional `request_id`. This adapter maps that onto
- * JARVIS's generic HermesToolRequest as faithfully as the wire allows; when
- * Hermes omits `request_id` (single pending approval, FIFO resolution) the
- * decision is sent back without one rather than inventing an id Hermes
- * would not recognize.
+ * approval system, not a generic {toolName, input} shape: a pending
+ * approval carries `command` (shell) or `tool_name` (plugin) plus
+ * `request_id` and `execution_generation`. This adapter maps that onto
+ * JARVIS's generic HermesToolRequest as faithfully as the wire allows.
  */
 export class HermesAgentAdapter implements HermesAdapter {
   readonly mode = "real" as const;
@@ -71,6 +88,8 @@ export class HermesAgentAdapter implements HermesAdapter {
   }
 
   async execute(input: HermesExecuteInput, callbacks: HermesExecuteCallbacks): Promise<HermesResult> {
+    const prompt = input.priorContext ? `${input.priorContext}\n\n---\n\n${input.objective}` : input.objective;
+
     let res: Response;
     try {
       // Deliberately NOT forwarding input.routing.modelId as `model`: that id is JARVIS's
@@ -81,10 +100,13 @@ export class HermesAgentAdapter implements HermesAdapter {
       // resolvable model string. JARVIS's routing decision still governs *whether* the
       // mission is allowed to run at all and is recorded for audit/UI — it just isn't a
       // cross-system model identifier.
+      //
+      // session_id: missionId, sent defensively (see file header) — NOT a substitute
+      // for priorContext above, which is what actually carries history today.
       res = await fetch(`${this.baseUrl}/v1/runs`, {
         method: "POST",
         headers: this.headers(true),
-        body: JSON.stringify({ input: input.objective }),
+        body: JSON.stringify({ input: prompt, session_id: input.missionId }),
         signal: callbacks.signal,
       });
     } catch (err) {
@@ -136,12 +158,20 @@ export class HermesAgentAdapter implements HermesAdapter {
         }
         case "approval.request": {
           const requestId = typeof event.request_id === "string" ? event.request_id : undefined;
+          const executionGeneration = typeof event.execution_generation === "number" ? event.execution_generation : undefined;
           const toolName =
             typeof event.tool_name === "string" ? event.tool_name : typeof event.command === "string" ? "terminal" : "unknown";
+          if (requestId === undefined || executionGeneration === undefined) {
+            // Docs require both on the approval call; without them we can't resolve this
+            // request at all. Deny rather than send a call the server will 409 on anyway.
+            logger.warn("hermes.agent.approval.missing_fields", { runId, event });
+          }
           const decision = callbacks.onToolRequest
             ? await callbacks.onToolRequest({ toolCallId: requestId ?? runId, toolName, input: event.command ?? event })
             : { decision: "deny" as const, reason: "No tool-request handler configured — denying by default." };
-          await this.sendApproval(runId, requestId, decision.decision === "allow" ? "once" : "deny");
+          if (requestId !== undefined && executionGeneration !== undefined) {
+            await this.sendApproval(runId, requestId, executionGeneration, decision.decision === "allow" ? "once" : "deny");
+          }
           break;
         }
         case "run.completed":
@@ -166,13 +196,23 @@ export class HermesAgentAdapter implements HermesAdapter {
     throw new HermesError("PROTOCOL", "Hermes Agent event stream closed before sending a result.", { retryable: false });
   }
 
-  private async sendApproval(runId: string, requestId: string | undefined, choice: "once" | "deny"): Promise<void> {
+  private async sendApproval(
+    runId: string,
+    requestId: string,
+    executionGeneration: number,
+    choice: "once" | "deny"
+  ): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/v1/runs/${runId}/approval`, {
+      const res = await fetch(`${this.baseUrl}/v1/runs/${runId}/approval`, {
         method: "POST",
         headers: this.headers(true),
-        body: JSON.stringify(requestId ? { choice, request_id: requestId } : { choice }),
+        body: JSON.stringify({ request_id: requestId, execution_generation: executionGeneration, choice }),
       });
+      if (res.status === 409) {
+        // Stale generation — the run moved on before our decision arrived (e.g. a
+        // pause/cancel raced the approval). Not fatal to the overall run; log and move on.
+        logger.warn("hermes.agent.approval.stale_generation", { runId, requestId, executionGeneration });
+      }
     } catch (err) {
       logger.warn("hermes.agent.approval.failed", { runId, requestId, error: err instanceof Error ? err.message : String(err) });
     }

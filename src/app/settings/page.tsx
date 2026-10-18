@@ -29,7 +29,6 @@ const statusLabelMap: Record<ProviderStatus, string> = {
 
 const hermesLabelMap = {
   agent: { label: "Real Hermes Agent", tone: "success" as StatusTone },
-  http: { label: "Custom Hermes endpoint", tone: "success" as StatusTone },
   mock: { label: "Mock (simulated)", tone: "idle" as StatusTone },
 };
 

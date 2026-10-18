@@ -10,6 +10,7 @@ import type {
   CreateMissionInput,
   Mission,
   MissionAgentAssignment,
+  MissionDecision,
   MissionStatus,
   PendingToolApproval,
   TransitionOptions,
@@ -67,6 +68,7 @@ export function createMission(input: CreateMissionInput, actor: Actor): Mission 
     result: null,
     verification: null,
     pendingToolApproval: null,
+    decision: null,
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -131,6 +133,14 @@ export function updateMissionProgress(id: string, progress: number, currentObjec
     currentObjective: currentObjective ?? mission.currentObjective,
     updatedAt: nowIso(),
   };
+  updateMission(updated);
+  return updated;
+}
+
+/** Records Laya's fast pre-classification of the mission (architecture doc §17). */
+export function updateMissionDecision(id: string, decision: MissionDecision): Mission {
+  const mission = requireMission(id);
+  const updated: Mission = { ...mission, decision, updatedAt: nowIso() };
   updateMission(updated);
   return updated;
 }

@@ -2,6 +2,7 @@ import { nowIso } from "@/server/db/util";
 import { emitEvent } from "@/server/events/service";
 import { getHermesAdapter } from "@/server/hermes/factory";
 import type { HermesResult, HermesToolRequest, ToolDecision } from "@/server/hermes/types";
+import { getLayaAdapter } from "@/server/laya/factory";
 import { logger } from "@/server/logging/logger";
 import { selectModel } from "@/server/omnirouter/router";
 import { recordAudit } from "@/server/security/audit";
@@ -16,6 +17,7 @@ import {
   setPendingToolApproval,
   transitionMission,
   updateMissionAgents,
+  updateMissionDecision,
   updateMissionProgress,
 } from "./service";
 import type { Mission, MissionAgentAssignment, MissionStatus, PendingToolApproval, TransitionOptions } from "./types";
@@ -212,6 +214,29 @@ export function startMission(missionId: string): void {
 async function beginMission(missionId: string): Promise<void> {
   const mission = getMission(missionId);
   if (!mission) return;
+
+  // Laya fast-classifies the mission before anything else runs (architecture doc §17).
+  // Recorded for routing/audit visibility — the MVP doesn't gate execution on it yet,
+  // matching Rex's current scope; a failed/degraded Laya call must never block the mission.
+  try {
+    const laya = getLayaAdapter();
+    const decision = await laya.classify({
+      state: mission.objective,
+      question: "Can this mission proceed unattended, or does it need full planning?",
+      options: ["unattended", "needs_planning"],
+    });
+    updateMissionDecision(missionId, decision);
+    emitEvent({
+      type: "mission.classified",
+      missionId,
+      source: "laya",
+      status: "classified",
+      metadata: { choice: decision.choice, confidence: decision.confidence },
+    });
+  } catch (err) {
+    logger.warn("mission.classify.failed", { missionId, error: err instanceof Error ? err.message : String(err) });
+  }
+
   transitionMission(missionId, "RUNNING");
   emitEvent({ type: "mission.started", missionId, source: "orchestrator", status: "running" });
   await executePipeline(missionId, 0);
@@ -289,6 +314,17 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
   setHermesAgentStatus(missionId, "working");
   emitEvent({ type: "agent.started", missionId, agentId: "hermes", source: "hermes", status: "started" });
 
+  // Hermes has no verified cross-run resume primitive (architecture doc §18) — on a
+  // resume, fold what's known about the prior run into the prompt rather than relying
+  // on fromPercent alone, which the real agent-adapter doesn't forward. Without this,
+  // a paused-then-resumed mission silently restarts its objective from scratch.
+  const priorContext =
+    fromPercent > 0
+      ? `This mission was previously paused at ${fromPercent}% progress. Last known state: ${
+          mission.currentObjective ?? "no progress note recorded"
+        }. Resume from there rather than starting over.`
+      : undefined;
+
   let hermesResult: HermesResult;
   try {
     hermesResult = await adapter.execute(
@@ -296,6 +332,7 @@ async function executePipeline(missionId: string, fromPercent: number): Promise<
         missionId,
         objective: mission.objective,
         routing,
+        priorContext,
         fromPercent,
         allowedTools: mission.allowedTools,
         forbiddenActions: mission.forbiddenActions,

@@ -45,6 +45,13 @@ export interface PendingToolApproval {
   requestedAt: string;
 }
 
+/** Laya's fast pre-classification of the mission (architecture doc §17) — recorded for
+ *  routing/audit visibility; the MVP doesn't yet gate execution on it (same as Rex's). */
+export interface MissionDecision {
+  choice: string;
+  confidence: number;
+}
+
 export interface Mission {
   id: string;
   objective: string;
@@ -65,6 +72,7 @@ export interface Mission {
   result: MissionResult | null;
   verification: VerificationResult | null;
   pendingToolApproval: PendingToolApproval | null;
+  decision: MissionDecision | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

@@ -1,5 +1,6 @@
 export type EventType =
   | "mission.created"
+  | "mission.classified"
   | "mission.started"
   | "mission.paused"
   | "mission.resumed"
