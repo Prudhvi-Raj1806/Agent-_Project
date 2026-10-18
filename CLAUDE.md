@@ -1,4 +1,4 @@
-Read `docs/ARCHITECTURE.md` before making any design decision in this repo — it is the authoritative "JARVIS Architecture v2" doc (not a summary; exported verbatim, rev 37, 2026-10-18). It governs:
+Read `docs/ARCHITECTURE.md` before making any design decision in this repo — it is the authoritative "JARVIS Architecture v2" doc (not a summary; exported verbatim, rev 38, 2026-10-18). It governs:
 
 - what JARVIS owns vs. delegates vs. integrates (§2)
 - the adapter pattern for runtimes, models, decision models, tools, and skills (§15, §17) — the whole reason `src/server/hermes/`, `src/server/laya/`, and `src/server/omnirouter/` are shaped the way they are

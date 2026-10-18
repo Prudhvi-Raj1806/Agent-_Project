@@ -427,3 +427,21 @@ The §17 table's "new skill/workflow" row currently resolves to "drop a director
 - A failing plugin is caught, logged, and excluded for that process lifetime — never a crash.
 
 **No change** to the runtime, model, or decision-model choices in §3/§6/§7/§18 — Mark's repos have nothing to say about Hermes, OmniRoute, or Laya specifically. This section only sharpens one row of one table.
+
+## 20. Build Location Decision (2026-10-18) — `agent-_project`, Not Rex
+
+**Decision (Raj, 2026-10-18): the JARVIS build moved into `agent-_project` (Next.js/TypeScript), reworked in place. The from-scratch Python rebuild (`Rex`, started earlier the same day) is abandoned.** This reverses that morning's "scrap it, start clean in Python" call — recorded here rather than silently overwritten, per this doc's own discipline of not hiding a reversed decision.
+
+**Why the reversal mattered less than it first looked:** the original call to scrap `agent-_project` was made on the assumption that its entire Hermes integration was invented against a hypothetical contract. That assumption was wrong. The repo already contained two things: a dead, never-implemented bespoke contract (`contract.ts`/`http-adapter.ts`) **and**, separately, a real adapter (`agent-adapter.ts`) correctly targeting Hermes Agent's actual `api_server` platform — written with more operational detail (exact endpoint paths, SSE event names, approval-choice vocabulary) than this doc had recorded anywhere. Rex duplicated work that was already done, in the wrong language for no longer-relevant reasons.
+
+**What changed in `agent-_project` to make it match this doc, concretely:**
+
+- Deleted the dead `contract.ts`/`http-adapter.ts`/`retry.ts` path (+ tests) and the `HERMES_API_URL` branch in `factory.ts`. `agent-adapter.ts` (real) + `mock-adapter.ts` (dev fallback) are the only two `RuntimeAdapter` implementations now — no third path to confuse with the real one.
+- Fixed a real bug in `agent-adapter.ts`: `POST /v1/runs/{id}/approval` was missing the required `execution_generation` field (§18's 2026-10-18 addendum) — every real approval would have 409'd.
+- Fixed a real bug in `orchestrator.ts`: resuming a paused mission silently restarted the objective from scratch, because `fromPercent` was never actually forwarded to a real Hermes run. Now folds prior progress into the resumed prompt — the same mitigation §18 already prescribed for the session-continuity gap, just not yet applied in code until today.
+- Added `src/server/laya/` — `DecisionModelAdapter` (classify/health), wired into the mission orchestrator as a non-blocking pre-classification step. This was the one genuine gap: nothing like it existed in `agent-_project` before today.
+- `src/server/omnirouter/` was checked against §7's division of labor (OmniRoute = inference transport, JARVIS = routing policy) and found **not** to violate it — it's JARVIS's own provider/account/model routing-policy layer, with a real local OmniRoute gateway as one configured entry among several. No change made there; recorded here so a future pass doesn't re-raise it as a finding.
+
+**Status:** 65/65 tests pass against this code; `tsc --noEmit` clean. `Rex` is left untouched on disk, marked abandoned in its own README, not deleted — same respect-prior-work treatment the original scaffold got back when the decision ran the other way.
+
+**No change** to the runtime, model, or decision-model choices themselves (§3/§6/§7) — Hermes, Laya, and OmniRoute's roles are exactly what §2/§6/§7/§17 already said. This section records *where* the code lives and *what* was fixed to match the doc, not a new architectural call.
