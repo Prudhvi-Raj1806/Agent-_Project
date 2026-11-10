@@ -16,7 +16,8 @@ function hermesBinary(): string {
   return process.env.HERMES_BIN || path.join(hermesHome(), "bin", "hermes.exe");
 }
 
-async function stopGateway(): Promise<number> {
+/** Stops any running `hermes gateway run` process; resolves to how many were stopped. */
+export async function stopHermesGateway(): Promise<number> {
   const { stdout } = await run(
     "powershell.exe",
     [
@@ -54,17 +55,19 @@ async function waitForHealthy(timeoutMs: number): Promise<HermesHealth> {
   return last;
 }
 
-/**
- * Stops any running Hermes gateway and starts a fresh one, detached so it
- * outlives this server, then waits for it to report healthy. Windows only —
- * that's where Hermes is installed here.
- */
-export async function restartHermesGateway(): Promise<HermesHealth> {
+/** Starts `hermes gateway run` detached so it outlives this server. Windows only. */
+export async function startHermesGateway(): Promise<void> {
   if (process.platform !== "win32") throw new Error("Restarting Hermes from the dashboard is only supported on Windows.");
-  await stopGateway();
-  await new Promise((r) => setTimeout(r, 1_500));
   const child = spawn(hermesBinary(), ["gateway", "run"], { detached: true, stdio: "ignore", windowsHide: true });
   child.on("error", () => {});
   child.unref();
+}
+
+/** Stops any running gateway, starts a fresh one, and waits for it to report healthy. */
+export async function restartHermesGateway(): Promise<HermesHealth> {
+  if (process.platform !== "win32") throw new Error("Restarting Hermes from the dashboard is only supported on Windows.");
+  await stopHermesGateway();
+  await new Promise((r) => setTimeout(r, 1_500));
+  await startHermesGateway();
   return waitForHealthy(60_000);
 }
