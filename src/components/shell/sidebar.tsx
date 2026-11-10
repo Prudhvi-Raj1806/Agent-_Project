@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -14,7 +15,6 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PresenceRing } from "@/components/primitives/presence-ring";
 import { BRAND } from "@/lib/brand";
 
 export const primaryNav = [
@@ -44,12 +44,10 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-full w-44 shrink-0 flex-col border-r border-border bg-background md:flex">
-      <div className="flex h-14 items-center gap-2.5 px-4">
-        <PresenceRing size="sm" active />
-        <span className="text-sm font-semibold tracking-wide text-foreground">
-          {BRAND}
-        </span>
-      </div>
+      <Link href="/" aria-label={BRAND} className="flex h-14 items-center gap-2.5 px-4">
+        <Image src="/brand/veda-mark.png" alt="" width={420} height={216} priority unoptimized className="h-6 w-auto" />
+        <Image src="/brand/veda-wordmark.png" alt={BRAND} width={420} height={56} priority unoptimized className="h-2.5 w-auto" />
+      </Link>
 
       <nav className="flex flex-col gap-0.5 px-2.5 pt-2">
         {primaryNav.map((item) => (
