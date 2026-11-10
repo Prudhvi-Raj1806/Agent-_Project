@@ -17,6 +17,8 @@ export interface JarvisVoice {
   levelRef: React.RefObject<number>;
   speak: (text: string) => void;
   stop: () => void;
+  /** Shows the globe's "Processing" state while work (e.g. a mission) runs with no audio. */
+  setThinking: (on: boolean) => void;
 }
 
 /**
@@ -198,6 +200,10 @@ export function useJarvisVoice(): JarvisVoice {
     setState("idle");
   }, [releaseAudio]);
 
+  const setThinking = useCallback((on: boolean) => {
+    setState((prev) => (on ? (prev === "speaking" ? prev : "thinking") : prev === "thinking" ? "idle" : prev));
+  }, []);
+
   useEffect(
     () => () => {
       requestIdRef.current++;
@@ -207,5 +213,5 @@ export function useJarvisVoice(): JarvisVoice {
     [releaseAudio, stopLoop],
   );
 
-  return { state, caption, levelRef, speak, stop };
+  return { state, caption, levelRef, speak, stop, setThinking };
 }
