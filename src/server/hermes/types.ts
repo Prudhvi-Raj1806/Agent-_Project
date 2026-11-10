@@ -14,6 +14,11 @@ export interface HermesHealth {
   healthy: boolean;
   version?: string;
   latencyMs: number;
+  /**
+   * Whether the runtime advertises run approvals. `false` only when it says so
+   * explicitly; `undefined` means unknown (adapter couldn't tell), never "no".
+   */
+  approvalSupported?: boolean;
 }
 
 interface HermesToolBase {

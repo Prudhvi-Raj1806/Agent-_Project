@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { logger } from "@/server/logging/logger";
 import { HermesError } from "./errors";
 import { parseSseStream } from "./sse";
@@ -50,19 +51,77 @@ import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesH
  * standing instruction, until session_id is confirmed to work against a
  * live instance.
  *
+ * 2026-11-10 hardening, from re-reading the current api-server docs (Hermes v0.22.5):
+ *   - Submit carries an `Idempotency-Key` (one fresh UUID per execute(), reused across
+ *     submit retries). Per the docs an identical retry replays the original run_id
+ *     instead of starting a second run, which is what makes retrying safe at all.
+ *   - 429 (concurrent-run cap) and 503 (`runtime_draining` / `storage_unavailable`)
+ *     are retried with backoff, honouring `Retry-After`.
+ *   - `run.interrupted` is a documented terminal event on the runs stream. Treated as
+ *     a retryable runtime failure, not a success and not a hang.
+ *   - `GET /v1/capabilities` is probed in checkHealth(); `features.run_approval ===
+ *     false` is surfaced as `approvalSupported: false`. Absence of the flag proves
+ *     nothing (the docs' feature list is partial), so that case stays `undefined`.
+ *   - Still UNVERIFIED against a live instance (architecture doc §11): the docs state
+ *     `approval.request` explicitly only for MCP trust-gate consent, and don't say a
+ *     general approval policy holds the tool before it runs. Do not treat this
+ *     adapter's approval path as proof that arbitrary tool calls are gated.
+ *
  * Hermes Agent's tool-approval events come from its own terminal/plugin
  * approval system, not a generic {toolName, input} shape: a pending
  * approval carries `command` (shell) or `tool_name` (plugin) plus
  * `request_id` and `execution_generation`. This adapter maps that onto
  * JARVIS's generic HermesToolRequest as faithfully as the wire allows.
  */
+export interface HermesSubmitRetryOptions {
+  /** Total submit attempts, including the first. */
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_SUBMIT_RETRY: HermesSubmitRetryOptions = { maxAttempts: 4, baseDelayMs: 500, maxDelayMs: 8_000 };
+const MAX_RETRY_AFTER_MS = 30_000;
+
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortError());
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** `Retry-After` as delta-seconds (the only form worth honouring here); undefined if absent/unparseable. */
+function parseRetryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get("retry-after");
+  if (raw === null) return undefined;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
 export class HermesAgentAdapter implements HermesAdapter {
   readonly mode = "real" as const;
+  private readonly submitRetry: HermesSubmitRetryOptions;
 
   constructor(
     private readonly baseUrl: string,
-    private readonly apiKey: string
-  ) {}
+    private readonly apiKey: string,
+    options: { submitRetry?: Partial<HermesSubmitRetryOptions> } = {}
+  ) {
+    this.submitRetry = { ...DEFAULT_SUBMIT_RETRY, ...options.submitRetry };
+  }
 
   private headers(json: boolean): HeadersInit {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}` };
@@ -77,7 +136,8 @@ export class HermesAgentAdapter implements HermesAdapter {
       const latencyMs = Date.now() - startedAt;
       if (!res.ok) return { healthy: false, latencyMs };
       const body = (await res.json()) as { version?: string };
-      return { healthy: true, version: body.version, latencyMs };
+      const approvalSupported = await this.probeApprovalSupport();
+      return { healthy: true, version: body.version, latencyMs, approvalSupported };
     } catch (err) {
       logger.warn("hermes.agent.health.failed", {
         baseUrl: this.baseUrl,
@@ -87,46 +147,115 @@ export class HermesAgentAdapter implements HermesAdapter {
     }
   }
 
+  /** `GET /v1/capabilities` → whether the server advertises run approvals. undefined = unknown. */
+  private async probeApprovalSupport(): Promise<boolean | undefined> {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/capabilities`, {
+        headers: this.headers(false),
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!res.ok) return undefined;
+      const body = (await res.json()) as { features?: unknown };
+      const features = body.features;
+      // The docs' own feature list is partial, so a missing flag is "unknown", never "false".
+      if (Array.isArray(features)) return features.includes("run_approval") ? true : undefined;
+      if (features && typeof features === "object") {
+        const flag = (features as Record<string, unknown>).run_approval;
+        if (typeof flag === "boolean") {
+          if (!flag) logger.warn("hermes.agent.capabilities.approval_unsupported", { baseUrl: this.baseUrl });
+          return flag;
+        }
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Submits the run and returns its id. One Idempotency-Key per call, reused across
+   * every retry: Hermes replays the original run_id for an identical retry, so a
+   * retry after a lost response can't start a second run.
+   */
+  private async submitRun(input: HermesExecuteInput, prompt: string, signal: AbortSignal): Promise<string> {
+    // Deliberately NOT forwarding input.routing.modelId as `model`: that id is JARVIS's
+    // own internal routing label (e.g. "omniroute-auto"), not a model string Hermes's
+    // `_resolve_route()` can resolve — Hermes has no idea what JARVIS's OmniRouter calls
+    // things. Omitting `model` lets Hermes fall back to whatever it's locally configured
+    // to use (config.yaml `model.default`/`model.provider`), which is the real,
+    // resolvable model string. JARVIS's routing decision still governs *whether* the
+    // mission is allowed to run at all and is recorded for audit/UI — it just isn't a
+    // cross-system model identifier.
+    //
+    // session_id: missionId, sent defensively (see file header) — NOT a substitute
+    // for priorContext above, which is what actually carries history today.
+    const idempotencyKey = randomUUID();
+    const body = JSON.stringify({ input: prompt, session_id: input.missionId });
+    const { maxAttempts, baseDelayMs, maxDelayMs } = this.submitRetry;
+
+    for (let attempt = 1; ; attempt++) {
+      const backoffMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+
+      let res: Response;
+      try {
+        res = await fetch(`${this.baseUrl}/v1/runs`, {
+          method: "POST",
+          headers: { ...this.headers(true), "Idempotency-Key": idempotencyKey },
+          body,
+          signal,
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        if (attempt < maxAttempts) {
+          logger.warn("hermes.agent.submit.retry", { missionId: input.missionId, attempt, reason: "network" });
+          await sleep(backoffMs, signal);
+          continue;
+        }
+        throw new HermesError("NETWORK", `Hermes Agent submit failed: ${err instanceof Error ? err.message : String(err)}`, {
+          retryable: true,
+          cause: err,
+        });
+      }
+
+      if (res.status === 429 || res.status === 503) {
+        if (attempt < maxAttempts) {
+          logger.warn("hermes.agent.submit.retry", { missionId: input.missionId, attempt, reason: String(res.status) });
+          await sleep(parseRetryAfterMs(res) ?? backoffMs, signal);
+          continue;
+        }
+        throw new HermesError(
+          "RUNTIME",
+          res.status === 429
+            ? "Hermes Agent is at its concurrent-run limit (429)."
+            : "Hermes Agent is draining or its storage is unavailable (503).",
+          { retryable: true }
+        );
+      }
+      if (res.status === 401 || res.status === 403) {
+        throw new HermesError("AUTH", `Hermes Agent rejected the request (${res.status}) — check HERMES_AGENT_API_KEY.`, {
+          retryable: false,
+        });
+      }
+      if (res.status === 409) {
+        // permission_denied (session_id owned by another surface) or idempotency_key_conflict.
+        // Neither is fixed by retrying the same request.
+        throw new HermesError("RUNTIME", "Hermes Agent refused the run (409) — session_id owned by another surface, or idempotency key conflict.", {
+          retryable: false,
+        });
+      }
+      if (!res.ok) {
+        throw new HermesError("RUNTIME", `Hermes Agent rejected the run (${res.status})`, { retryable: res.status >= 500 });
+      }
+
+      const { run_id: runId } = (await res.json()) as { run_id: string };
+      return runId;
+    }
+  }
+
   async execute(input: HermesExecuteInput, callbacks: HermesExecuteCallbacks): Promise<HermesResult> {
     const prompt = input.priorContext ? `${input.priorContext}\n\n---\n\n${input.objective}` : input.objective;
 
-    let res: Response;
-    try {
-      // Deliberately NOT forwarding input.routing.modelId as `model`: that id is JARVIS's
-      // own internal routing label (e.g. "omniroute-auto"), not a model string Hermes's
-      // `_resolve_route()` can resolve — Hermes has no idea what JARVIS's OmniRouter calls
-      // things. Omitting `model` lets Hermes fall back to whatever it's locally configured
-      // to use (config.yaml `model.default`/`model.provider`), which is the real,
-      // resolvable model string. JARVIS's routing decision still governs *whether* the
-      // mission is allowed to run at all and is recorded for audit/UI — it just isn't a
-      // cross-system model identifier.
-      //
-      // session_id: missionId, sent defensively (see file header) — NOT a substitute
-      // for priorContext above, which is what actually carries history today.
-      res = await fetch(`${this.baseUrl}/v1/runs`, {
-        method: "POST",
-        headers: this.headers(true),
-        body: JSON.stringify({ input: prompt, session_id: input.missionId }),
-        signal: callbacks.signal,
-      });
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") throw err;
-      throw new HermesError("NETWORK", `Hermes Agent submit failed: ${err instanceof Error ? err.message : String(err)}`, {
-        retryable: true,
-        cause: err,
-      });
-    }
-
-    if (res.status === 401 || res.status === 403) {
-      throw new HermesError("AUTH", `Hermes Agent rejected the request (${res.status}) — check HERMES_AGENT_API_KEY.`, {
-        retryable: false,
-      });
-    }
-    if (!res.ok) {
-      throw new HermesError("RUNTIME", `Hermes Agent rejected the run (${res.status})`, { retryable: res.status >= 500 });
-    }
-
-    const { run_id: runId } = (await res.json()) as { run_id: string };
+    const runId = await this.submitRun(input, prompt, callbacks.signal);
     logger.info("hermes.agent.run.started", { missionId: input.missionId, runId });
 
     try {
@@ -186,7 +315,12 @@ export class HermesAgentAdapter implements HermesAdapter {
             retryable: false,
           });
         case "run.cancelled":
-          throw new DOMException("Aborted", "AbortError");
+          throw abortError();
+        case "run.interrupted":
+          // Documented terminal event on the runs stream (e.g. server restart/drain). Not a
+          // success and not a user cancel — surface it so the mission fails visibly instead
+          // of hanging or being mistaken for a clean completion.
+          throw new HermesError("RUNTIME", "Hermes Agent run was interrupted before it finished.", { retryable: true });
         default:
           // message.delta/approval.responded/run.steered and anything newer — no action needed.
           break;
