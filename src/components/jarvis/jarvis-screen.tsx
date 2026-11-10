@@ -3,15 +3,24 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, Cloud, CloudRain, CloudSnow, SendHorizontal, Square, Sun } from "lucide-react";
+import { HudApproval } from "@/components/jarvis/hud-approval";
 import { HudClock } from "@/components/jarvis/hud-clock";
+import { HudNowPlaying } from "@/components/jarvis/hud-now-playing";
 import { HudPanel } from "@/components/jarvis/hud-panel";
 import { HudRings } from "@/components/jarvis/hud-rings";
 import { JarvisGlobe } from "@/components/jarvis/jarvis-globe";
+import { QuickDock } from "@/components/jarvis/quick-dock";
 import { buildBriefing } from "@/lib/jarvis/briefing";
-import { browserMissionRunDeps, runMissionToSettled } from "@/lib/jarvis/mission-run";
+import {
+  browserMissionRunDeps,
+  resumeMissionToSettled,
+  runMissionToSettled,
+  submitToolApproval,
+} from "@/lib/jarvis/mission-run";
 import { missionSpeech } from "@/lib/jarvis/mission-speech";
 import { useJarvisVoice, type JarvisVoiceState } from "@/lib/jarvis/use-jarvis-voice";
 import type { NewsItem, ScheduleItem, SystemStatus, WeatherCondition, WeatherStatus } from "@/lib/data/types";
+import type { Mission, PendingToolApproval } from "@/server/missions/types";
 import { cn } from "@/lib/utils";
 
 interface JarvisScreenProps {
@@ -108,6 +117,9 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastMissionId, setLastMissionId] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<{ missionId: string; approval: PendingToolApproval } | null>(
+    null,
+  );
 
   const inputRef = useRef<HTMLInputElement>(null);
   const runRef = useRef<AbortController | null>(null);
@@ -150,26 +162,31 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
     [],
   );
 
-  /** Mission loop: create the mission, wait for it to settle, then say what actually happened. */
-  const ask = useCallback(
-    async (text: string) => {
-      const objective = text.trim();
-      if (!objective) return;
-
+  /**
+   * Runs one stretch of mission work (creating it, or resuming after an
+   * approval), then says what actually happened. A mission that stops to wait
+   * on the owner puts its approval on screen instead of just announcing it.
+   */
+  const track = useCallback(
+    async (run: (signal: AbortSignal) => Promise<Mission>) => {
       runRef.current?.abort();
       const controller = new AbortController();
       runRef.current = controller;
 
-      setHeard(objective);
       setNotice(null);
       setLastMissionId(null);
       setWorking(true);
       setThinking(true);
       try {
-        const mission = await runMissionToSettled(objective, browserMissionRunDeps(), controller.signal);
+        const mission = await run(controller.signal);
         if (controller.signal.aborted) return;
         setLastMissionId(mission.id);
         setThinking(false);
+        setPendingApproval(
+          mission.status === "WAITING_USER" && mission.pendingToolApproval
+            ? { missionId: mission.id, approval: mission.pendingToolApproval }
+            : null,
+        );
         speak(missionSpeech(mission));
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -187,12 +204,46 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
     [setThinking, speak],
   );
 
+  const ask = useCallback(
+    async (text: string) => {
+      const objective = text.trim();
+      if (!objective) return;
+      if (pendingApproval) {
+        setNotice("Answer the pending approval first.");
+        return;
+      }
+      setHeard(objective);
+      await track((signal) => runMissionToSettled(objective, browserMissionRunDeps(), signal));
+    },
+    [pendingApproval, track],
+  );
+
+  /** Sends the owner's ALLOW/DENY, then carries on waiting for the mission to settle again. */
+  const decideApproval = useCallback(
+    async (approved: boolean) => {
+      if (!pendingApproval) return;
+      const { missionId, approval } = pendingApproval;
+      setPendingApproval(null);
+      await track(async (signal) => {
+        await submitToolApproval(missionId, approval.toolCallId, approved);
+        return resumeMissionToSettled(missionId, browserMissionRunDeps(), signal, {
+          answeredToolCallId: approval.toolCallId,
+        });
+      });
+    },
+    [pendingApproval, track],
+  );
+
   const submitDraft = useCallback(() => {
     const text = draft.trim();
     if (!text || working) return;
+    if (pendingApproval) {
+      setNotice("Answer the pending approval first.");
+      return;
+    }
     setDraft("");
     void ask(text);
-  }, [ask, draft, working]);
+  }, [ask, draft, pendingApproval, working]);
 
   const stopAll = () => {
     runRef.current?.abort();
@@ -244,7 +295,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
   const handyReady = Boolean(voiceStatus?.handy.running);
 
   const captionText =
-    voice.caption || (working ? "Working on it…" : "Type a request, dictate it with Handy, or press Brief me.");
+    voice.caption || (working ? "Working on it…" : "Type a request, dictate it with Handy, or tap Brief.");
 
   return (
     <div className="relative grid h-full min-h-0 grid-cols-1 gap-4 overflow-hidden px-6 py-5 lg:grid-cols-[minmax(240px,290px)_minmax(0,1fr)_minmax(240px,290px)]">
@@ -273,7 +324,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
 
       {/* Centre: the globe */}
       <div className="relative flex min-h-0 flex-col items-center justify-center">
-        <div className="relative aspect-square w-full max-w-[min(100%,calc(100dvh-17rem))]">
+        <div className="relative aspect-square w-full max-w-[min(100%,calc(100dvh-24rem))]">
           <HudRings className="absolute inset-0 size-full opacity-80" />
           <JarvisGlobe levelRef={voice.levelRef} state={voice.state} className="absolute inset-0 size-full" />
         </div>
@@ -312,6 +363,10 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               </Link>
             )}
           </div>
+
+          {pendingApproval && (
+            <HudApproval approval={pendingApproval.approval} busy={working} onDecide={decideApproval} />
+          )}
 
           <form
             onSubmit={(e) => {
@@ -372,15 +427,9 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
                 <SendHorizontal className="size-4" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => speak(briefing())}
-              disabled={busy}
-              className="border border-accent-cyan/30 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-accent-cyan transition-colors hover:bg-accent-cyan/10 disabled:opacity-40"
-            >
-              Brief me
-            </button>
           </form>
+
+          <QuickDock onBrief={() => speak(briefing())} briefDisabled={busy} />
 
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <StatusChip
@@ -435,6 +484,8 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
             </ul>
           )}
         </HudPanel>
+
+        <HudNowPlaying />
 
         <HudPanel title="Feed" meta="Live" className="min-h-0 flex-1 overflow-hidden">
           {news.length === 0 ? (

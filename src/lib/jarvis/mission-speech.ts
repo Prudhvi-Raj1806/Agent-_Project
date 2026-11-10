@@ -37,8 +37,8 @@ export function missionSpeech(mission: Mission): string {
     case "WAITING_USER": {
       const tool = mission.pendingToolApproval?.toolName;
       return tool
-        ? `I need your approval to use ${tool} before I continue. Open the Work screen to review it.`
-        : "I need your approval before I continue. Open the Work screen to review it.";
+        ? `I need your approval to use ${tool} before I continue. Please allow or deny it on screen.`
+        : "I need your approval before I continue. Please allow or deny it on screen.";
     }
     case "WAITING_EXTERNAL":
       return "I'm waiting on an external system before I can continue.";

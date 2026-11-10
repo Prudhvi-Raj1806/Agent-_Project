@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runMissionToSettled, type MissionRunDeps } from "./mission-run";
+import { resumeMissionToSettled, runMissionToSettled, submitToolApproval, type MissionRunDeps } from "./mission-run";
 import type { Mission, MissionStatus } from "@/server/missions/types";
 
 const stub = (status: MissionStatus): Mission => ({ id: "m1", status }) as Mission;
@@ -61,5 +61,47 @@ describe("runMissionToSettled", () => {
       }),
     });
     await expect(runMissionToSettled("x", d, controller.signal)).rejects.toThrow(/abort/i);
+  });
+});
+
+describe("resumeMissionToSettled", () => {
+  const waiting = (toolCallId: string): Mission =>
+    ({ id: "m1", status: "WAITING_USER", pendingToolApproval: { toolCallId } }) as Mission;
+
+  it("keeps polling past the approval that was just answered until the mission really settles", async () => {
+    const seen: Mission[] = [waiting("t1"), waiting("t1"), stub("RUNNING"), stub("COMPLETED")];
+    const d = deps({ getMission: vi.fn(async () => seen.shift() ?? stub("COMPLETED")) });
+    const result = await resumeMissionToSettled("m1", d, undefined, { answeredToolCallId: "t1" });
+    expect(result.status).toBe("COMPLETED");
+    expect(d.createMission).not.toHaveBeenCalled();
+  });
+
+  it("stops at a different approval — a new tool call needs its own answer", async () => {
+    const d = deps({ getMission: vi.fn(async () => waiting("t2")) });
+    const result = await resumeMissionToSettled("m1", d, undefined, { answeredToolCallId: "t1" });
+    expect(result.pendingToolApproval?.toolCallId).toBe("t2");
+  });
+
+  it("returns the still-running mission at the timeout", async () => {
+    const d = deps({ getMission: vi.fn(async () => stub("RUNNING")), timeoutMs: 2000 });
+    expect((await resumeMissionToSettled("m1", d)).status).toBe("RUNNING");
+  });
+});
+
+describe("submitToolApproval", () => {
+  it("posts the owner's decision to the tool-approvals route", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    await submitToolApproval("m 1", "call/1", true, fetchImpl as unknown as typeof fetch);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/missions/m%201/tool-approvals/call%2F1",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ approved: true }) }),
+    );
+  });
+
+  it("throws the server's message when the approval is no longer pending", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: "No pending tool approval." }), { status: 404 }));
+    await expect(submitToolApproval("m1", "t1", false, fetchImpl as unknown as typeof fetch)).rejects.toThrow(
+      "No pending tool approval.",
+    );
   });
 });

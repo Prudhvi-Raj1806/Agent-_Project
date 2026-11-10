@@ -21,21 +21,77 @@ export async function runMissionToSettled(
   deps: MissionRunDeps,
   signal?: AbortSignal,
 ): Promise<Mission> {
+  if (signal?.aborted) throw new DOMException("Mission run aborted.", "AbortError");
+  const created = await deps.createMission(objective);
+  return pollUntilSettled(created.id, deps, signal, undefined);
+}
+
+export interface ResumeOptions {
+  /**
+   * The tool call the owner just answered. The server clears the pending
+   * approval a beat after the answer lands, so a poll that still shows this
+   * same approval is stale, not a fresh request — keep waiting through it.
+   */
+  answeredToolCallId?: string;
+}
+
+/**
+ * Picks an existing mission back up after the owner answered an approval and
+ * waits for it to settle again. A different pending approval still settles
+ * the wait: that is a new tool call needing its own answer.
+ */
+export function resumeMissionToSettled(
+  missionId: string,
+  deps: MissionRunDeps,
+  signal?: AbortSignal,
+  options: ResumeOptions = {},
+): Promise<Mission> {
+  return pollUntilSettled(missionId, deps, signal, options.answeredToolCallId);
+}
+
+async function pollUntilSettled(
+  missionId: string,
+  deps: MissionRunDeps,
+  signal: AbortSignal | undefined,
+  answeredToolCallId: string | undefined,
+): Promise<Mission> {
   const throwIfAborted = () => {
     if (signal?.aborted) throw new DOMException("Mission run aborted.", "AbortError");
   };
-
-  throwIfAborted();
-  let mission = await deps.createMission(objective);
   const startedAt = deps.now();
 
   for (;;) {
     throwIfAborted();
-    mission = await deps.getMission(mission.id);
+    const mission = await deps.getMission(missionId);
     throwIfAborted();
-    if (isSettledStatus(mission.status)) return mission;
+    const staleApproval =
+      answeredToolCallId !== undefined &&
+      mission.status === "WAITING_USER" &&
+      mission.pendingToolApproval?.toolCallId === answeredToolCallId;
+    if (isSettledStatus(mission.status) && !staleApproval) return mission;
     if (deps.now() - startedAt >= deps.timeoutMs) return mission;
     await deps.sleep(deps.intervalMs);
+  }
+}
+
+/** Sends the owner's ALLOW/DENY for a paused tool call. Throws the server's message if it can't be applied. */
+export async function submitToolApproval(
+  missionId: string,
+  toolCallId: string,
+  approved: boolean,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const res = await fetchImpl(
+    `/api/missions/${encodeURIComponent(missionId)}/tool-approvals/${encodeURIComponent(toolCallId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved }),
+    },
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? "Couldn't send that decision.");
   }
 }
 
