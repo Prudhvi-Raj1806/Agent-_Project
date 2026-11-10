@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { handyStatus } from "@/server/voice/handy";
 import { currentVoicePrefs } from "@/server/voice/prefs";
 import { pcPlaybackSupported } from "@/server/voice/pc-playback";
-import { effectiveSpeechProvider, isElevenLabsConfigured, voiceStudioReachable } from "@/server/voice/tts";
+import {
+  effectiveSpeechProvider,
+  isElevenLabsConfigured,
+  kokoroReachable,
+  voiceStudioReachable,
+} from "@/server/voice/tts";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +16,10 @@ export const dynamic = "force-dynamic";
  * would use given the owner's choice. Drives the status chips on /jarvis.
  */
 export async function GET() {
-  const [voiceStudio, handy] = await Promise.all([voiceStudioReachable(), handyStatus()]);
+  const [kokoro, voiceStudio, handy] = await Promise.all([kokoroReachable(), voiceStudioReachable(), handyStatus()]);
   const { provider } = currentVoicePrefs();
   const speech = effectiveSpeechProvider(provider, {
+    kokoro,
     voicestudio: voiceStudio,
     elevenlabs: isElevenLabsConfigured(),
   });

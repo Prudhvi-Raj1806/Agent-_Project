@@ -28,6 +28,7 @@ describe("/api/app-settings", () => {
       "remote.tailnetHost": "",
       "voice.provider": "auto",
       "voice.voicestudioVoice": "alloy",
+      "voice.kokoroVoice": "af_heart",
       "voice.autoSendDictation": false,
       "voice.replyDevice": "this-device",
     });

@@ -17,7 +17,10 @@ export async function POST(request: NextRequest) {
   if (denied) return denied;
 
   const body = await request.json().catch(() => null);
-  const text = typeof body?.text === "string" ? body.text : "";
+  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  if (!text) {
+    return NextResponse.json({ error: "`text` is required." }, { status: 400 });
+  }
 
   const result = await speakOnPc(text);
   if (!result.ok) {

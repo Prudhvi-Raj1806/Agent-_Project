@@ -50,6 +50,13 @@ export function isVoiceStudioMain(commandLine: string): boolean {
   return commandLine.trim() !== "" && !/--type=/.test(commandLine);
 }
 
+/** Kokoro's launcher and its Python process: recognised by the server script in this project's own folder. */
+export function isKokoroServer(commandLine: string, serverDir: string): boolean {
+  const normalise = (value: string) => value.toLowerCase().replace(/\//g, "\\");
+  const line = normalise(commandLine);
+  return line.includes(normalise(serverDir)) && line.includes("server.py");
+}
+
 /** True when something accepts a TCP connection on host:port within the timeout. */
 export function tcpOpen(host: string, port: number, timeoutMs = 800): Promise<boolean> {
   return new Promise((resolve) => {

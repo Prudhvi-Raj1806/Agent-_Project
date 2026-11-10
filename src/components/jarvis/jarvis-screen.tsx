@@ -34,7 +34,7 @@ interface JarvisScreenProps {
 }
 
 interface VoiceStatus {
-  speech: "voicestudio" | "elevenlabs" | "browser";
+  speech: "kokoro" | "voicestudio" | "elevenlabs" | "browser";
   handy: { installed: boolean; running: boolean };
 }
 
@@ -52,6 +52,7 @@ const stateLabel: Record<JarvisVoiceState, string> = {
 };
 
 const speechLabel: Record<VoiceStatus["speech"], string> = {
+  kokoro: "Kokoro",
   voicestudio: "VoiceStudio",
   elevenlabs: "ElevenLabs",
   browser: "Browser voice",
@@ -477,7 +478,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
             <StatusChip
               label="Voice"
               value={voiceStatus ? speechLabel[voiceStatus.speech] : "…"}
-              ok={voiceStatus?.speech === "voicestudio" || voiceStatus?.speech === "elevenlabs"}
+              ok={Boolean(voiceStatus) && voiceStatus?.speech !== "browser"}
             />
             {!remote && <StatusChip label="Handy" value={handyChip.value} ok={handyChip.ok} />}
             <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-text-dim max-md:min-h-11">

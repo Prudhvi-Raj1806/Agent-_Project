@@ -4,7 +4,8 @@ import { promisify } from "node:util";
 import { getHermesAdapter } from "@/server/hermes/factory";
 import { startHermesGateway, stopHermesGateway } from "@/server/hermes/gateway";
 import type { ServiceDef } from "./controller";
-import { findProcesses, isVoiceStudioMain, killPids, spawnDetached, tcpOpen } from "./process";
+import { kokoroBaseUrl } from "@/server/voice/tts";
+import { findProcesses, isKokoroServer, isVoiceStudioMain, killPids, spawnDetached, tcpOpen } from "./process";
 
 const run = promisify(execFile);
 
@@ -32,6 +33,33 @@ const hermes: ServiceDef = {
   start: startHermesGateway,
   async stop() {
     await stopHermesGateway();
+  },
+};
+
+/** The Kokoro server lives in this project, so its folder is fixed and never comes from a request. */
+function kokoroDir(): string {
+  return path.join(process.cwd(), "services", "kokoro");
+}
+
+const kokoro: ServiceDef = {
+  id: "kokoro",
+  label: "Kokoro voice",
+  async probe() {
+    if (!kokoroBaseUrl()) return { running: false, detail: "Switched off (KOKORO_URL=off)" };
+    const health = (await getJson(`${kokoroBaseUrl()}/health`)) as { model?: string } | null;
+    return health ? { running: true, detail: `${health.model ?? "Kokoro-82M"} · local` } : { running: false, detail: null };
+  },
+  async start() {
+    const dir = kokoroDir();
+    spawnDetached(process.env.UV_PATH?.trim() || "uv", ["run", "--project", dir, "python", path.join(dir, "server.py")]);
+  },
+  async stop() {
+    const dir = kokoroDir();
+    const mine = [];
+    for (const image of ["python.exe", "uv.exe"]) {
+      mine.push(...(await findProcesses(image)).filter((p) => isKokoroServer(p.commandLine, dir)));
+    }
+    await killPids(mine.map((p) => p.pid), true);
   },
 };
 
@@ -101,5 +129,5 @@ const ollama: ServiceDef = {
 };
 
 export function getServiceDefs(): ServiceDef[] {
-  return [hermes, voicestudio, omniroute, ollama];
+  return [hermes, kokoro, voicestudio, omniroute, ollama];
 }

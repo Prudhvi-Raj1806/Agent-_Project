@@ -46,3 +46,7 @@ next-env.d.ts
 
 # claude code runtime lock (regenerated per session)
 .claude/scheduled_tasks.lock
+
+# local Kokoro speech server
+/services/kokoro/.venv/
+__pycache__/

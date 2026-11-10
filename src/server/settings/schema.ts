@@ -11,11 +11,12 @@ export interface SettingsShape {
   "remote.tailnetHost": string;
   "voice.provider": VoiceProvider;
   "voice.voicestudioVoice": string;
+  "voice.kokoroVoice": string;
   "voice.autoSendDictation": boolean;
   "voice.replyDevice": ReplyDevice;
 }
 
-export const VOICE_PROVIDERS = ["auto", "voicestudio", "elevenlabs", "browser"] as const;
+export const VOICE_PROVIDERS = ["auto", "kokoro", "voicestudio", "elevenlabs", "browser"] as const;
 export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
 
 export const REPLY_DEVICES = ["this-device", "pc"] as const;
@@ -83,6 +84,17 @@ function parseVoiceName(value: unknown): string {
   return voice;
 }
 
+/** A Kokoro voice id such as af_heart: language letter, gender letter, underscore, name. */
+const KOKORO_VOICE = /^[a-z]{2}_[a-z0-9]{2,20}$/;
+const DEFAULT_KOKORO_VOICE = "af_heart";
+
+function parseKokoroVoice(value: unknown): string {
+  if (typeof value !== "string") throw new Error("Expected text.");
+  const voice = value.trim().toLowerCase();
+  if (!KOKORO_VOICE.test(voice)) throw new Error("A Kokoro voice looks like af_heart or bm_george.");
+  return voice;
+}
+
 /** `VOICESTUDIO_VOICE` from the environment when it is usable, else "alloy". */
 function envVoice(): string {
   const configured = process.env.VOICESTUDIO_VOICE?.trim() ?? "";
@@ -100,6 +112,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<SettingsShape[K]> } =
     },
     parse: parseVoiceName,
   },
+  "voice.kokoroVoice": { default: DEFAULT_KOKORO_VOICE, parse: parseKokoroVoice },
   "voice.autoSendDictation": { default: false, parse: parseBoolean },
   "voice.replyDevice": { default: "this-device", parse: parseOneOf(REPLY_DEVICES) },
 };

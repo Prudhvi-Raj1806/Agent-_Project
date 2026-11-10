@@ -1,4 +1,4 @@
-export type ServiceId = "hermes" | "voicestudio" | "omniroute" | "ollama";
+export type ServiceId = "hermes" | "kokoro" | "voicestudio" | "omniroute" | "ollama";
 export type ServiceAction = "start" | "stop" | "restart";
 
 export interface ServiceStatus {

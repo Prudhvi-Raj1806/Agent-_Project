@@ -8,7 +8,11 @@ import { envVoicePrefs, type VoicePrefs } from "./tts";
  */
 export function currentVoicePrefs(): VoicePrefs {
   try {
-    return { provider: getSetting("voice.provider"), voice: getSetting("voice.voicestudioVoice") };
+    return {
+      provider: getSetting("voice.provider"),
+      voice: getSetting("voice.voicestudioVoice"),
+      kokoroVoice: getSetting("voice.kokoroVoice"),
+    };
   } catch {
     return envVoicePrefs();
   }

@@ -12,10 +12,34 @@ interface Voice {
 interface VoiceList {
   available: boolean;
   voices: Voice[];
+  kokoro: { available: boolean; voices: string[] };
+}
+
+const NO_VOICES: VoiceList = { available: false, voices: [], kokoro: { available: false, voices: [] } };
+
+const LANGUAGES: Record<string, string> = {
+  a: "US English",
+  b: "UK English",
+  e: "Spanish",
+  f: "French",
+  h: "Hindi",
+  i: "Italian",
+  j: "Japanese",
+  p: "Portuguese",
+  z: "Mandarin",
+};
+
+/** af_heart becomes "Heart · US English, female". */
+function kokoroLabel(id: string): string {
+  const [code, name = id] = id.split("_");
+  const language = LANGUAGES[code?.[0] ?? ""] ?? "Other";
+  const gender = code?.[1] === "m" ? "male" : "female";
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} · ${language}, ${gender}`;
 }
 
 const PROVIDERS: { value: SettingsShape["voice.provider"]; label: string }[] = [
-  { value: "auto", label: "Automatic: Voice Studio, then ElevenLabs, then browser" },
+  { value: "auto", label: "Automatic: Kokoro, then Voice Studio, then ElevenLabs, then browser" },
+  { value: "kokoro", label: "Kokoro only (local, light)" },
   { value: "voicestudio", label: "Voice Studio only" },
   { value: "elevenlabs", label: "ElevenLabs only" },
   { value: "browser", label: "Browser voice only" },
@@ -27,6 +51,7 @@ const REPLY_DEVICES: { value: SettingsShape["voice.replyDevice"]; label: string 
 ];
 
 const PROVIDER_NAME: Record<string, string> = {
+  kokoro: "Kokoro",
   voicestudio: "Voice Studio",
   elevenlabs: "ElevenLabs",
   browser: "Browser voice",
@@ -52,13 +77,14 @@ export function VoicePanel() {
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [preset, setPreset] = useState("");
 
   const loadVoices = useCallback(async () => {
     try {
       const res = await fetch("/api/voice/voices");
-      setVoices(res.ok ? ((await res.json()) as VoiceList) : { available: false, voices: [] });
+      setVoices(res.ok ? ((await res.json()) as VoiceList) : NO_VOICES);
     } catch {
-      setVoices({ available: false, voices: [] });
+      setVoices(NO_VOICES);
     }
   }, []);
 
@@ -67,12 +93,14 @@ export function VoicePanel() {
     return () => clearTimeout(first);
   }, [loadVoices]);
 
-  const save = async (patch: Partial<SettingsShape>) => {
+  const save = async (patch: Partial<SettingsShape>): Promise<boolean> => {
     setError(null);
     try {
       await update(patch);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save that.");
+      return false;
     }
   };
 
@@ -107,6 +135,8 @@ export function VoicePanel() {
   const voiceOptions: Voice[] = voices?.voices ?? [];
   const currentVoice = settings["voice.voicestudioVoice"];
   const currentListed = voiceOptions.some((v) => v.id === currentVoice);
+  const kokoroOptions = voices?.kokoro.voices ?? [];
+  const currentKokoro = settings["voice.kokoroVoice"];
 
   return (
     <div className="flex flex-col gap-4">
@@ -126,6 +156,33 @@ export function VoicePanel() {
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="kokoro-voice" className="text-sm text-foreground">
+          Kokoro voice
+        </label>
+        <select
+          id="kokoro-voice"
+          className={field}
+          value={currentKokoro}
+          disabled={!voices?.kokoro.available}
+          onChange={(e) => save({ "voice.kokoroVoice": e.target.value })}
+        >
+          {!kokoroOptions.includes(currentKokoro) && <option value={currentKokoro}>{kokoroLabel(currentKokoro)}</option>}
+          {kokoroOptions.map((id) => (
+            <option key={id} value={id}>
+              {kokoroLabel(id)}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {voices === null
+            ? "Looking for Kokoro…"
+            : voices.kokoro.available
+              ? "Kokoro runs on this PC: free, private, no internet needed."
+              : "Kokoro isn't running. Start it from Services above; the current voice stays selected."}
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -158,6 +215,25 @@ export function VoicePanel() {
               ? "Voices come from your Voice Studio profiles."
               : "Voice Studio isn't running. Open it to choose a voice; the current one stays in use."}
         </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            aria-label="Built-in voice name"
+            placeholder="Or type a built-in voice, e.g. alba"
+            value={preset}
+            onChange={(e) => setPreset(e.target.value)}
+            className={`${field} min-w-0 flex-1`}
+          />
+          <button
+            type="button"
+            className={button}
+            disabled={!preset.trim()}
+            onClick={async () => {
+              if (await save({ "voice.voicestudioVoice": preset.trim() })) setPreset("");
+            }}
+          >
+            Use
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
