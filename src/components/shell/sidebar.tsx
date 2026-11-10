@@ -8,6 +8,7 @@ import {
   Focus,
   House,
   Layers,
+  Orbit,
   Music2,
   Radio,
   Settings,
@@ -17,6 +18,7 @@ import { PresenceRing } from "@/components/primitives/presence-ring";
 
 const primaryNav = [
   { href: "/", label: "Home", icon: House },
+  { href: "/jarvis", label: "Jarvis", icon: Orbit },
   { href: "/work", label: "Work", icon: Layers },
   { href: "/focus", label: "Focus", icon: Focus },
 ];
