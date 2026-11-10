@@ -11,6 +11,7 @@ export type EventType =
   | "mission.task.updated"
   | "mission.budget_exceeded"
   | "mission.checkpoint.created"
+  | "mission.classified"
   | "agent.started"
   | "agent.progress"
   | "agent.completed"

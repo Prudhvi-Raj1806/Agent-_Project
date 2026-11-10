@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDbForTests } from "@/server/db/client";
 import { subscribe } from "@/server/events/service";
-import type { HermesHealth } from "@/server/hermes/contract";
+import type { HermesHealth } from "@/server/hermes/types";
 import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesResult } from "@/server/hermes/types";
 import { getOwnerActor } from "@/server/security/policy";
 import { pauseMission, resumeMission, startMission } from "./orchestrator";

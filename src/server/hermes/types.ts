@@ -1,8 +1,50 @@
 import type { RoutingDecision } from "@/server/omnirouter/types";
-import type { HermesHealth, HermesToolDecisionRequest, HermesToolEventFrame, HermesToolRequestFrame, HermesUsage } from "./contract";
+
+/**
+ * These generic shapes used to live in a bespoke-wire contract.ts (deleted
+ * 2026-10-19 per docs/ARCHITECTURE.md §20 — JARVIS talks to a real Hermes
+ * Agent via agent-adapter.ts's api_server surface, not an invented
+ * protocol). They stay here because they're adapter-agnostic: any
+ * HermesAdapter implementation (today: agent-adapter.ts, mock-adapter.ts)
+ * maps its own wire shape onto these.
+ */
+
+interface HermesToolFrameBase {
+  toolCallId: string;
+  toolName: string;
+}
+
+/** Hermes asking permission — sent BEFORE the tool runs, not after. */
+export interface HermesToolRequestFrame extends HermesToolFrameBase {
+  input?: unknown;
+}
+
+export type HermesToolEventFrame =
+  | (HermesToolFrameBase & { type: "tool.started"; input?: unknown })
+  | (HermesToolFrameBase & { type: "tool.completed"; output?: unknown })
+  | (HermesToolFrameBase & { type: "tool.failed"; error: string });
+
+/** Real token usage for a completed run. Only present when the backend actually reports it — never fabricated. */
+export interface HermesUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+/** JARVIS's answer to a pending tool request. */
+export interface HermesToolDecisionRequest {
+  decision: "allow" | "deny";
+  reason?: string;
+}
+
+export interface HermesHealth {
+  healthy: boolean;
+  version?: string;
+  latencyMs: number;
+}
 
 export type HermesToolEvent = HermesToolEventFrame;
-export type HermesToolRequest = Omit<HermesToolRequestFrame, "type">;
+export type HermesToolRequest = HermesToolRequestFrame;
 export type ToolDecision = HermesToolDecisionRequest;
 
 export interface HermesExecuteInput {
@@ -48,5 +90,3 @@ export interface HermesAdapter {
   execute(input: HermesExecuteInput, callbacks: HermesExecuteCallbacks): Promise<HermesResult>;
   checkHealth(): Promise<HermesHealth>;
 }
-
-export type { HermesHealth, HermesUsage } from "./contract";

@@ -34,8 +34,7 @@ vi.mock("@/server/security/tool-policy", async (importOriginal) => {
 });
 
 function createSingleToolFixture(toolName: string) {
-  const decisionWaiters = new Map<string, () => void>();
-  const receivedDecisions: Array<{ decision: string }> = [];
+  const decisionWaiters = new Map<string, (choice: string) => void>();
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -46,49 +45,42 @@ function createSingleToolFixture(toolName: string) {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/missions") {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
-        const parsed = JSON.parse(body) as { correlationId: string };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ correlationId: parsed.correlationId, runId: `run-${parsed.correlationId}` }));
-      });
+    if (req.method === "POST" && url.pathname === "/v1/runs") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ run_id: "run-1" }));
       return;
     }
 
-    if (req.method === "POST" && /\/tool-decisions\//.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/approval$/.test(url.pathname)) {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       req.on("end", () => {
-        const toolCallId = url.pathname.split("/").pop()!;
-        const parsed = JSON.parse(body) as { decision: string };
-        receivedDecisions.push({ decision: parsed.decision });
-        decisionWaiters.get(toolCallId)?.();
-        decisionWaiters.delete(toolCallId);
+        const parsed = JSON.parse(body) as { choice: string; request_id?: string };
+        const requestId = parsed.request_id ?? "call-1";
+        decisionWaiters.get(requestId)?.(parsed.choice);
+        decisionWaiters.delete(requestId);
         res.writeHead(200);
         res.end();
       });
       return;
     }
 
-    if (req.method === "GET" && /\/stream$/.test(url.pathname)) {
+    if (req.method === "GET" && /\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) {
       res.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
       const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
-      send({ type: "tool.requested", toolCallId: "call-1", toolName, input: { path: "notes.md" } });
-      new Promise<void>((resolve) => decisionWaiters.set("call-1", resolve)).then(() => {
-        const last = receivedDecisions.at(-1);
-        if (last?.decision === "deny") {
-          send({ type: "error", message: "denied by policy", retryable: false });
+      send({ event: "approval.request", request_id: "call-1", execution_generation: 1, tool_name: toolName, command: { path: "notes.md" } });
+      new Promise<string>((resolve) => decisionWaiters.set("call-1", resolve)).then((choice) => {
+        if (choice === "deny") {
+          send({ event: "run.failed", error: "denied by policy" });
         } else {
-          send({ type: "result", success: true, summary: "done", output: "Tool call completed" });
+          send({ event: "run.completed", summary: "done", output: "Tool call completed" });
         }
         res.end();
       });
       return;
     }
 
-    if (req.method === "POST" && /\/cancel$/.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) {
       res.writeHead(200);
       res.end();
       return;
@@ -145,7 +137,8 @@ describe("Hermes tool requests route through ToolExecutor, not tool-policy direc
     evaluateGovernedToolCallMock.mockReturnValue({ verdict: "ALLOW", risk: "low", reason: "mocked allow" });
 
     server = createSingleToolFixture("read_file");
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission({ objective: "Read a file" }, getOwnerActor());
     const done = waitForTerminal(mission.id);
@@ -172,7 +165,8 @@ describe("Hermes tool requests route through ToolExecutor, not tool-policy direc
     evaluateGovernedToolCallMock.mockReturnValue({ verdict: "DENY", risk: "critical", reason: "mocked deny" });
 
     server = createSingleToolFixture("execute_command");
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission({ objective: "Run a command" }, getOwnerActor());
     const done = waitForTerminal(mission.id);

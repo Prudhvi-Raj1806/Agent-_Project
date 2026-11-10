@@ -1,6 +1,5 @@
 import { logger } from "@/server/logging/logger";
-import type { HermesHealth } from "./contract";
-import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesResult } from "./types";
+import type { HermesAdapter, HermesExecuteCallbacks, HermesExecuteInput, HermesHealth, HermesResult } from "./types";
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -27,7 +26,7 @@ const STEP_DELAY_MS = 500;
  * Simulates Hermes execution locally — no real agent runtime is involved.
  * Every result is labeled `source: "mock"` and says so in its own output,
  * so a mission can never be mistaken for genuinely-verified autonomous
- * work. Swap in a real adapter (http-adapter.ts) once Hermes is reachable.
+ * work. Swap in the real adapter (agent-adapter.ts) once Hermes is reachable.
  */
 export class HermesMockAdapter implements HermesAdapter {
   readonly mode = "mock" as const;
@@ -56,8 +55,8 @@ export class HermesMockAdapter implements HermesAdapter {
         `[MOCK HERMES — no real agent runtime connected]\n\n` +
         `Objective: ${input.objective}\n` +
         `Model routed: ${input.routing.modelName} (${input.routing.providerName})\n\n` +
-        `This is a simulated result for local development. Connect a real Hermes runtime via ` +
-        `HERMES_API_URL to replace this output with genuine agent execution.`,
+        `This is a simulated result for local development. Connect a real Hermes Agent via ` +
+        `HERMES_AGENT_URL/HERMES_AGENT_API_KEY to replace this output with genuine agent execution.`,
       source: "mock",
     };
   }

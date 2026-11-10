@@ -10,10 +10,10 @@ import { createMission, getMission } from "./service";
 /**
  * Exercises `Mission.budget.maxTokens` — the one budget dimension checked
  * post-hoc against Hermes's real reported usage, not live mid-execution
- * (Hermes only reports totals at completion, via the `result` frame's
- * optional `usage` field — see contract.ts / http-adapter.ts). Needs a live
- * fixture, like the other budget dimensions, since the mock adapter never
- * reports usage at all.
+ * (Hermes Agent's `run.completed` event carries usage only at completion —
+ * see hermes/agent-adapter.ts's `parseAgentUsage`). Needs a live fixture,
+ * like the other budget dimensions, since the mock adapter never reports
+ * usage at all.
  */
 
 function createUsageReportingFixture(usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null) {
@@ -26,33 +26,27 @@ function createUsageReportingFixture(usage: { inputTokens: number; outputTokens:
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/missions") {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
-        const parsed = JSON.parse(body) as { correlationId: string };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ correlationId: parsed.correlationId, runId: `run-${parsed.correlationId}` }));
-      });
+    if (req.method === "POST" && url.pathname === "/v1/runs") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ run_id: "run-1" }));
       return;
     }
 
-    if (req.method === "GET" && /\/stream$/.test(url.pathname)) {
+    if (req.method === "GET" && /\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) {
       res.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
       const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
-      send({ type: "progress", percent: 50, note: "working" });
+      send({ event: "message.delta", delta: "working" });
       send({
-        type: "result",
-        success: true,
+        event: "run.completed",
         summary: "done",
         output: "Task complete.",
-        ...(usage ? { usage } : {}),
+        ...(usage ? { usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens, total_tokens: usage.totalTokens } } : {}),
       });
       res.end();
       return;
     }
 
-    if (req.method === "POST" && /\/cancel$/.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) {
       res.writeHead(200);
       res.end();
       return;
@@ -101,7 +95,8 @@ describe("token budget enforcement (maxTokens, post-hoc against real reported us
 
   it("fails the mission (not silently) once real usage exceeds maxTokens, even though the model succeeded and verification would pass", async () => {
     server = createUsageReportingFixture({ inputTokens: 200, outputTokens: 900, totalTokens: 1100 });
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission(
       { objective: "Task complete this", successCriteria: ["complete"], budget: { maxTokens: 1000 } },
@@ -127,7 +122,8 @@ describe("token budget enforcement (maxTokens, post-hoc against real reported us
 
   it("completes normally when usage stays within maxTokens", async () => {
     server = createUsageReportingFixture({ inputTokens: 100, outputTokens: 400, totalTokens: 500 });
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission(
       { objective: "Task complete this", successCriteria: ["complete"], budget: { maxTokens: 1000 } },
@@ -145,7 +141,8 @@ describe("token budget enforcement (maxTokens, post-hoc against real reported us
 
   it("does not enforce maxTokens when the adapter reports no usage at all — honestly unknown, not assumed in-budget or over", async () => {
     server = createUsageReportingFixture(null);
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission(
       { objective: "Task complete this", successCriteria: ["complete"], budget: { maxTokens: 1 } },

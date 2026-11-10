@@ -2,6 +2,7 @@ import { nowIso } from "@/server/db/util";
 import { emitEvent } from "@/server/events/service";
 import { getHermesAdapter } from "@/server/hermes/factory";
 import type { HermesResult, HermesToolRequest, ToolDecision } from "@/server/hermes/types";
+import { getDecisionModelAdapter } from "@/server/laya/factory";
 import { logger } from "@/server/logging/logger";
 import { selectModel } from "@/server/omnirouter/router";
 import { recordAudit } from "@/server/security/audit";
@@ -206,6 +207,33 @@ function failMissionOnBudgetViolation(
   clearBudgetState(missionId);
 }
 
+/**
+ * §6/§17/§20: Laya as a non-blocking pre-classifier, not a gate. Fire-and-
+ * forget — never awaited by `executePipeline`, so a slow or unreachable
+ * Laya (the fallback adapter always reports "degraded") can never add
+ * latency to, or block, a mission's actual execution. Nothing in the
+ * pipeline consumes this yet (no routing decision reads `mission.classified`
+ * back out) — it exists so the adapter boundary and its event are real and
+ * observable before anything is built that depends on them, matching §17's
+ * stated gap being closed one piece at a time.
+ */
+function classifyMissionNonBlocking(missionId: string, objective: string): void {
+  void getDecisionModelAdapter()
+    .classify({ state: objective, question: "urgency", schema: ["low", "medium", "high"] })
+    .then((result) => {
+      emitEvent({
+        type: "mission.classified",
+        missionId,
+        source: "laya",
+        status: "classified",
+        metadata: { question: "urgency", decision: result.decision, confidence: result.confidence },
+      });
+    })
+    .catch((err) => {
+      logger.warn("mission.classify.failed", { missionId, error: err instanceof Error ? err.message : String(err) });
+    });
+}
+
 const HERMES_AGENT_ID = "hermes";
 
 /** Only one agent exists in Phase 1 (Hermes) — this becomes a real roster once sub-agents exist. */
@@ -238,8 +266,8 @@ export function resolveToolApproval(missionId: string, toolCallId: string, appro
 /**
  * Execution-time tool gate: Tool request -> permission check -> risk
  * evaluation -> ALLOW / ASK / DENY -> tool execution. Runs once per
- * `tool.requested` frame Hermes reports, before Hermes is told it may
- * proceed (see hermes/http-adapter.ts's handling of that frame).
+ * `approval.request` frame Hermes reports, before Hermes is told it may
+ * proceed (see hermes/agent-adapter.ts's handling of that frame).
  */
 async function handleToolRequest(
   missionId: string,
@@ -436,6 +464,7 @@ async function beginMission(missionId: string): Promise<void> {
   transitionMission(missionId, "RUNNING");
   const generation = startNewRun(missionId);
   emitEvent({ type: "mission.started", missionId, source: "orchestrator", status: "running" });
+  classifyMissionNonBlocking(missionId, mission.objective);
   const task = ensureRootTask(missionId, mission.objective);
   emitEvent({
     type: "mission.task.created",

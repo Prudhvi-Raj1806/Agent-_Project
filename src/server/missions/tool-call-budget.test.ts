@@ -10,13 +10,14 @@ import { createMission, getMission } from "./service";
 /**
  * Exercises `Mission.budget.maxToolCalls` and `Mission.budget.maxRepeatedToolCalls`
  * — the orchestrator's second and third budget dimensions, alongside the
- * `maxSteps` check covered in orchestrator.test.ts. These need a live HTTP
- * fixture (same technique as tool-approval.test.ts) rather than the mock
- * Hermes adapter, because the mock adapter never makes a tool call at all.
+ * `maxSteps` check covered in orchestrator.test.ts. These need a live
+ * fixture speaking Hermes Agent's api_server wire (same technique as
+ * tool-approval.test.ts) rather than the mock Hermes adapter, because the
+ * mock adapter never makes a tool call at all.
  */
 
 function createSequentialToolFixture(calls: Array<{ toolName: string; input: unknown }>) {
-  const decisionWaiters = new Map<string, (decision: string) => void>();
+  const decisionWaiters = new Map<string, (choice: string) => void>();
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -27,56 +28,57 @@ function createSequentialToolFixture(calls: Array<{ toolName: string; input: unk
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/missions") {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
-        const parsed = JSON.parse(body) as { correlationId: string };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ correlationId: parsed.correlationId, runId: `run-${parsed.correlationId}` }));
-      });
+    if (req.method === "POST" && url.pathname === "/v1/runs") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ run_id: "run-1" }));
       return;
     }
 
-    if (req.method === "POST" && /\/tool-decisions\//.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/approval$/.test(url.pathname)) {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       req.on("end", () => {
-        const toolCallId = url.pathname.split("/").pop()!;
-        const parsed = JSON.parse(body) as { decision: string };
-        decisionWaiters.get(toolCallId)?.(parsed.decision);
-        decisionWaiters.delete(toolCallId);
+        const parsed = JSON.parse(body) as { choice: string; request_id?: string };
+        const requestId = parsed.request_id!;
+        decisionWaiters.get(requestId)?.(parsed.choice);
+        decisionWaiters.delete(requestId);
         res.writeHead(200);
         res.end();
       });
       return;
     }
 
-    if (req.method === "GET" && /\/stream$/.test(url.pathname)) {
+    if (req.method === "GET" && /\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) {
       res.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
       const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
 
       void (async () => {
         for (let i = 0; i < calls.length; i++) {
-          const toolCallId = `call-${i + 1}`;
-          send({ type: "tool.requested", toolCallId, toolName: calls[i].toolName, input: calls[i].input });
+          const requestId = `call-${i + 1}`;
+          send({
+            event: "approval.request",
+            request_id: requestId,
+            execution_generation: 1,
+            tool_name: calls[i].toolName,
+            command: calls[i].input,
+          });
           // Never resolves if JARVIS aborts before POSTing a decision (e.g. a
           // budget violation) — that's expected, not a bug in the fixture;
           // the client-side pipeline still reaches a terminal state.
-          const decision = await new Promise<string>((resolve) => decisionWaiters.set(toolCallId, resolve));
-          if (decision !== "allow") {
-            send({ type: "error", message: "denied by policy", retryable: false });
+          const choice = await new Promise<string>((resolve) => decisionWaiters.set(requestId, resolve));
+          if (choice !== "once") {
+            send({ event: "run.failed", error: "denied by policy" });
             res.end();
             return;
           }
         }
-        send({ type: "result", success: true, summary: "done", output: `Completed ${calls.length} tool calls` });
+        send({ event: "run.completed", summary: "done", output: `Completed ${calls.length} tool calls` });
         res.end();
       })();
       return;
     }
 
-    if (req.method === "POST" && /\/cancel$/.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) {
       res.writeHead(200);
       res.end();
       return;
@@ -129,7 +131,8 @@ describe("tool-call budget enforcement (maxToolCalls, maxRepeatedToolCalls)", ()
       { toolName: "read_file", input: { path: "b.md" } },
       { toolName: "read_file", input: { path: "c.md" } },
     ]);
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission(
       { objective: "Read three files", budget: { maxToolCalls: 2 } },
@@ -156,7 +159,8 @@ describe("tool-call budget enforcement (maxToolCalls, maxRepeatedToolCalls)", ()
   it("fails the mission (not silently) when the same tool call repeats past maxRepeatedToolCalls — a stuck-loop guard", async () => {
     const sameCall = { toolName: "read_file", input: { path: "notes.md" } };
     server = createSequentialToolFixture([sameCall, sameCall, sameCall]);
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission(
       { objective: "Read notes.md", budget: { maxRepeatedToolCalls: 2 } },
@@ -180,7 +184,8 @@ describe("tool-call budget enforcement (maxToolCalls, maxRepeatedToolCalls)", ()
     const readB = { toolName: "read_file", input: { path: "b.md" } };
     // A, B, A: never two consecutive identical calls, so a limit of 1 must not trip.
     server = createSequentialToolFixture([readA, readB, readA]);
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission(
       { objective: "Read a.md, then b.md, then a.md again", budget: { maxRepeatedToolCalls: 1 } },

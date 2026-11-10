@@ -8,17 +8,17 @@ import { cancelMission, resolveToolApproval, startMission } from "./orchestrator
 import { createMission, getMission } from "./service";
 
 /**
- * These tests drive the FULL mission pipeline — orchestrator, real
- * `HermesHttpAdapter`, the tool-policy gate, and the pause/resume plumbing
- * together — against a tiny local fixture standing in for Hermes. Unit
- * coverage for the policy table itself lives in
- * `security/tool-policy.test.ts`; this file proves those pieces are
- * actually wired to each other correctly.
+ * These tests drive the FULL mission pipeline — orchestrator, the real
+ * `HermesAgentAdapter`, the tool-policy gate, and the pause/resume plumbing
+ * together — against a tiny local fixture speaking Hermes Agent's actual
+ * `api_server` wire (see hermes/agent-adapter.ts). Unit coverage for the
+ * policy table itself lives in `security/tool-policy.test.ts`; this file
+ * proves those pieces are actually wired to each other correctly.
  */
 
 function createGatedFixture(toolName: string) {
-  const decisionWaiters = new Map<string, () => void>();
-  const receivedDecisions: Array<{ decision: string }> = [];
+  const decisionWaiters = new Map<string, (choice: string) => void>();
+  const receivedDecisions: Array<{ choice: string }> = [];
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -29,50 +29,44 @@ function createGatedFixture(toolName: string) {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/missions") {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
-        const parsed = JSON.parse(body) as { correlationId: string };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ correlationId: parsed.correlationId, runId: `run-${parsed.correlationId}` }));
-      });
+    if (req.method === "POST" && url.pathname === "/v1/runs") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ run_id: "run-1" }));
       return;
     }
 
-    if (req.method === "POST" && /\/tool-decisions\//.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/approval$/.test(url.pathname)) {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       req.on("end", () => {
-        const toolCallId = url.pathname.split("/").pop()!;
-        const parsed = JSON.parse(body) as { decision: string };
-        receivedDecisions.push({ decision: parsed.decision });
-        decisionWaiters.get(toolCallId)?.();
-        decisionWaiters.delete(toolCallId);
+        const parsed = JSON.parse(body) as { choice: string; request_id?: string };
+        receivedDecisions.push({ choice: parsed.choice });
+        const requestId = parsed.request_id ?? "call-1";
+        decisionWaiters.get(requestId)?.(parsed.choice);
+        decisionWaiters.delete(requestId);
         res.writeHead(200);
         res.end();
       });
       return;
     }
 
-    if (req.method === "GET" && /\/stream$/.test(url.pathname)) {
+    if (req.method === "GET" && /\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) {
       res.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
       const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
-      send({ type: "progress", percent: 20, note: "starting" });
-      send({ type: "tool.requested", toolCallId: "call-1", toolName, input: { path: "notes.md" } });
-      new Promise<void>((resolve) => decisionWaiters.set("call-1", resolve)).then(() => {
-        const last = receivedDecisions.at(-1);
-        if (last?.decision === "deny") {
-          send({ type: "error", message: "denied by policy", retryable: false });
+      send({ event: "message.delta", delta: "starting" });
+      send({ event: "approval.request", request_id: "call-1", execution_generation: 1, tool_name: toolName, command: { path: "notes.md" } });
+      new Promise<string>((resolve) => decisionWaiters.set("call-1", resolve)).then((choice) => {
+        if (choice === "deny") {
+          send({ event: "run.failed", error: "denied by policy" });
         } else {
-          send({ type: "result", success: true, summary: "wrote it", output: "Wrote notes.md successfully" });
+          send({ event: "run.completed", summary: "wrote it", output: "Wrote notes.md successfully" });
         }
         res.end();
       });
       return;
     }
 
-    if (req.method === "POST" && /\/cancel$/.test(url.pathname)) {
+    if (req.method === "POST" && /\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) {
       res.writeHead(200);
       res.end();
       return;
@@ -118,7 +112,7 @@ function waitForTerminal(missionId: string, timeoutMs = 3000): Promise<void> {
   });
 }
 
-describe("execution-time tool security (full pipeline via a gated fixture Hermes)", () => {
+describe("execution-time tool security (full pipeline via a gated fixture Hermes Agent)", () => {
   let server: http.Server | undefined;
 
   beforeEach(() => {
@@ -134,7 +128,8 @@ describe("execution-time tool security (full pipeline via a gated fixture Hermes
 
   it("pauses on WAITING_USER with a visible pendingToolApproval, then resumes and completes once approved", async () => {
     server = createGatedFixture("write_file");
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission({ objective: "Write some notes to disk" }, getOwnerActor());
     const waitingForApproval = waitForEvent(mission.id, "security.approval_required");
@@ -162,7 +157,8 @@ describe("execution-time tool security (full pipeline via a gated fixture Hermes
 
   it("denying the request fails the mission — never fabricates success after a DENY", async () => {
     server = createGatedFixture("write_file");
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission({ objective: "Write some notes to disk" }, getOwnerActor());
     const waitingForApproval = waitForEvent(mission.id, "security.approval_required");
@@ -180,7 +176,8 @@ describe("execution-time tool security (full pipeline via a gated fixture Hermes
 
   it("auto-allows a low-risk tool without ever pausing the mission", async () => {
     server = createGatedFixture("read_file");
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission({ objective: "Read some notes from disk" }, getOwnerActor());
     const done = waitForTerminal(mission.id);
@@ -198,7 +195,8 @@ describe("execution-time tool security (full pipeline via a gated fixture Hermes
 
   it("cancelling a mission while it awaits approval resolves the wait instead of hanging forever", async () => {
     server = createGatedFixture("write_file");
-    vi.stubEnv("HERMES_API_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_URL", await listen(server));
+    vi.stubEnv("HERMES_AGENT_API_KEY", "test-key");
 
     const mission = createMission({ objective: "Write some notes to disk" }, getOwnerActor());
     const waitingForApproval = waitForEvent(mission.id, "security.approval_required");

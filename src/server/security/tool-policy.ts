@@ -7,7 +7,7 @@ import type { RiskLevel, ToolPolicyDecision, ToolVerdict } from "./types";
  *
  * This is the one execution-time security boundary for anything JARVIS can
  * be asked to run — every tool call a real agent runtime reports wanting to
- * make (see hermes/contract.ts's `tool.requested` frame) AND every Quick
+ * make (see hermes/agent-adapter.ts's `approval.request` handling) AND every Quick
  * Action (see actions/registry.ts and the run route it's wired to). Both
  * callers pass a `toolName` — a Hermes tool name (`read_file`, ...) or a
  * Quick Action id (`open-vscode`, ...); the rule table below covers both
