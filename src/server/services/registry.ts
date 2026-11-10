@@ -1,11 +1,10 @@
 import { execFile } from "node:child_process";
-import net from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getHermesAdapter } from "@/server/hermes/factory";
 import { startHermesGateway, stopHermesGateway } from "@/server/hermes/gateway";
 import type { ServiceDef } from "./controller";
-import { findProcesses, isVoiceStudioMain, killPids, spawnDetached } from "./process";
+import { findProcesses, isVoiceStudioMain, killPids, spawnDetached, tcpOpen } from "./process";
 
 const run = promisify(execFile);
 
@@ -16,19 +15,6 @@ async function getJson(url: string, timeoutMs = 1_500): Promise<unknown | null> 
   } catch {
     return null;
   }
-}
-
-function tcpOpen(host: string, port: number, timeoutMs = 800): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host, port });
-    const done = (ok: boolean) => {
-      socket.destroy();
-      resolve(ok);
-    };
-    socket.setTimeout(timeoutMs, () => done(false));
-    socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
-  });
 }
 
 const hermes: ServiceDef = {

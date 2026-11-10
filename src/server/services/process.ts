@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import net from "node:net";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -47,4 +48,18 @@ export async function killPids(pids: number[], tree = false): Promise<void> {
 /** The Electron main process has no `--type=` flag; its renderer, gpu and utility helpers all do. */
 export function isVoiceStudioMain(commandLine: string): boolean {
   return commandLine.trim() !== "" && !/--type=/.test(commandLine);
+}
+
+/** True when something accepts a TCP connection on host:port within the timeout. */
+export function tcpOpen(host: string, port: number, timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    const done = (ok: boolean) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
 }
