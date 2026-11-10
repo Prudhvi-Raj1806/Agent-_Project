@@ -1,7 +1,8 @@
-import { Bot, Cpu, Ear, Moon, Plug, Server, User } from "lucide-react";
+import { Bot, Cpu, Ear, Moon, Plug, Server, Smartphone, User } from "lucide-react";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { ClapWakePanel } from "@/components/settings/clap-wake-panel";
 import { HermesPanel } from "@/components/settings/hermes-panel";
+import { RemoteAccessPanel } from "@/components/settings/remote-access-panel";
 import { ServicesPanel } from "@/components/settings/services-panel";
 import { SpotifyConnectionRow } from "@/components/settings/spotify-connection-row";
 import { VoicePasscodePanel } from "@/components/settings/voice-passcode-panel";
@@ -108,6 +109,14 @@ export default function SettingsPage() {
           subtitle="Start, stop and restart what the assistant depends on."
         >
           <ServicesPanel />
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<Smartphone className="size-4 text-muted-foreground" />}
+          title="Phone and remote access"
+          subtitle="Open this dashboard from your phone over Tailscale. Nothing outside your tailnet can reach it."
+        >
+          <RemoteAccessPanel />
         </SettingsSection>
 
         <SettingsSection
