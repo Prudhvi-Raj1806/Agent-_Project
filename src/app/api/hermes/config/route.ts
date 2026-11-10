@@ -8,7 +8,7 @@ import {
 } from "@/server/hermes/config";
 import { getHermesAdapter } from "@/server/hermes/factory";
 import { restartHermesGateway } from "@/server/hermes/gateway";
-import { isLocalRequest } from "@/server/hermes/local-request";
+import { requireAccess } from "@/server/access/guard";
 
 function describeUrl(): string | null {
   const raw = process.env.HERMES_AGENT_URL;
@@ -23,7 +23,8 @@ function describeUrl(): string | null {
 
 /** Gateway status plus which provider/model Hermes is set to and what it can be switched to. Never includes keys. */
 export async function GET(request: NextRequest) {
-  if (!isLocalRequest(request.headers)) return NextResponse.json({ error: "Local requests only." }, { status: 403 });
+  const denied = requireAccess(request);
+  if (denied) return denied;
 
   const adapter = getHermesAdapter();
   const health = await adapter.checkHealth();
@@ -40,7 +41,8 @@ export async function GET(request: NextRequest) {
 
 /** Switches Hermes to a configured provider/model and restarts its gateway so the change takes effect. */
 export async function PUT(request: NextRequest) {
-  if (!isLocalRequest(request.headers)) return NextResponse.json({ error: "Local requests only." }, { status: 403 });
+  const denied = requireAccess(request);
+  if (denied) return denied;
 
   let body: unknown;
   try {

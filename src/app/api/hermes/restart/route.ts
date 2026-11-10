@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { restartHermesGateway } from "@/server/hermes/gateway";
-import { isLocalRequest } from "@/server/hermes/local-request";
+import { requireAccess } from "@/server/access/guard";
 
 /** Restarts the Hermes gateway without changing its config. */
 export async function POST(request: NextRequest) {
-  if (!isLocalRequest(request.headers)) return NextResponse.json({ error: "Local requests only." }, { status: 403 });
+  const denied = requireAccess(request);
+  if (denied) return denied;
   try {
     const health = await restartHermesGateway();
     return NextResponse.json({ ok: health.healthy, health });
