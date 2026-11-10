@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/primitives/confirm-dialog";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { useConfirm } from "@/lib/use-confirm";
+import { BRAND } from "@/lib/brand";
 
 export function SpotifyConnectionRow({ configured, connected }: { configured: boolean; connected: boolean }) {
   const router = useRouter();
@@ -29,7 +30,7 @@ export function SpotifyConnectionRow({ configured, connected }: { configured: bo
           onClick={() =>
             confirm({
               title: "Disconnect Spotify?",
-              description: "JARVIS will lose playback control until you reconnect your account.",
+              description: `${BRAND} will lose playback control until you reconnect your account.`,
               confirmLabel: "Disconnect",
               onConfirm: disconnect,
             })

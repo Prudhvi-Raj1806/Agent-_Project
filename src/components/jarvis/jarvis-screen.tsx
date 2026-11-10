@@ -22,6 +22,7 @@ import { useJarvisVoice, type JarvisVoiceState } from "@/lib/jarvis/use-jarvis-v
 import type { NewsItem, ScheduleItem, SystemStatus, WeatherCondition, WeatherStatus } from "@/lib/data/types";
 import type { Mission, PendingToolApproval } from "@/server/missions/types";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/lib/brand";
 
 interface JarvisScreenProps {
   system: SystemStatus;
@@ -135,7 +136,9 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
   useEffect(() => {
     let cancelled = false;
     const load = () =>
-      fetch("/api/voice/status")
+      document.hidden
+        ? Promise.resolve()
+        : fetch("/api/voice/status")
         .then((res) => (res.ok ? (res.json() as Promise<VoiceStatus>) : null))
         .then((data) => {
           if (!cancelled && data) setVoiceStatus(data);
@@ -341,7 +344,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
                     : "bg-status-idle",
               )}
             />
-            <span className="text-accent-cyan">Jarvis</span>
+            <span className="text-accent-cyan">{BRAND}</span>
             <span className="text-text-dim">/</span>
             <span className="text-muted-foreground">{stateLabel[voice.state]}</span>
           </div>
@@ -403,8 +406,8 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onPaste={onPaste}
-              placeholder={dictating ? "Listening… speak, then press the mic again" : "Ask Jarvis to do something…"}
-              aria-label="Request for Jarvis"
+              placeholder={dictating ? "Listening… speak, then press the mic again" : `Ask ${BRAND} to do something…`}
+              aria-label={`Request for ${BRAND}`}
               autoComplete="off"
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-text-dim"
             />
@@ -421,7 +424,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               <button
                 type="submit"
                 disabled={!draft.trim()}
-                aria-label="Send to Jarvis"
+                aria-label={`Send to ${BRAND}`}
                 className="flex size-7 items-center justify-center text-accent-cyan transition-colors hover:bg-surface-3 disabled:text-text-dim disabled:hover:bg-transparent"
               >
                 <SendHorizontal className="size-4" />

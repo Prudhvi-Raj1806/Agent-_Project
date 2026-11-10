@@ -15,10 +15,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PresenceRing } from "@/components/primitives/presence-ring";
+import { BRAND } from "@/lib/brand";
 
 const primaryNav = [
   { href: "/", label: "Home", icon: House },
-  { href: "/jarvis", label: "Jarvis", icon: Orbit },
+  { href: "/jarvis", label: BRAND, icon: Orbit },
   { href: "/work", label: "Work", icon: Layers },
   { href: "/focus", label: "Focus", icon: Focus },
 ];
@@ -46,7 +47,7 @@ export function Sidebar() {
       <div className="flex h-14 items-center gap-2.5 px-4">
         <PresenceRing size="sm" active />
         <span className="text-sm font-semibold tracking-wide text-foreground">
-          JARVIS
+          {BRAND}
         </span>
       </div>
 

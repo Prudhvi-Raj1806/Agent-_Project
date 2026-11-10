@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/primitives/skeleton";
 import { formatDuration } from "@/lib/format";
 import { sliderTrackClasses, sliderFillStyle } from "@/lib/slider-styles";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/lib/brand";
 
 function VolumeIcon({ percent }: { percent: number }) {
   if (percent === 0) return <VolumeX className="size-4 text-muted-foreground" />;
@@ -109,7 +110,7 @@ export function MusicView() {
   const progressSec = seekPreviewSec ?? liveProgressSec;
   const progressPercent = durationSec > 0 ? (progressSec / durationSec) * 100 : 0;
   const volume = nowPlaying?.device?.volumePercent ?? 0;
-  const onJarvisDevice = nowPlaying?.device?.name === "JARVIS";
+  const onJarvisDevice = nowPlaying?.device?.name === BRAND;
 
   return (
     <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center gap-8">

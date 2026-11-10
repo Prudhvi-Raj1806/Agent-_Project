@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSpotifyDevice } from "./player-context";
+import { BRAND } from "@/lib/brand";
 
 export type { SpotifyStatus } from "./player-context";
 
@@ -33,7 +34,7 @@ export function useSpotifyPlayer() {
         setTimeout(refresh, 400);
         return { ok: true, status: res.status };
       } catch {
-        setActionError("Couldn't reach JARVIS.");
+        setActionError(`Couldn't reach ${BRAND}.`);
         return { ok: false, status: 0 };
       }
     },

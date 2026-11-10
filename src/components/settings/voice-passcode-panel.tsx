@@ -6,6 +6,7 @@ import { Eye, EyeOff, Mic, ShieldCheck, ShieldOff } from "lucide-react";
 import { ConfirmDialog } from "@/components/primitives/confirm-dialog";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { useConfirm } from "@/lib/use-confirm";
+import { BRAND } from "@/lib/brand";
 
 type PasscodeSource = "settings" | "env" | "none";
 
@@ -44,7 +45,7 @@ export function VoicePasscodePanel({ source }: { source: PasscodeSource }) {
       setEditing(false);
       router.refresh();
     } catch {
-      setError("Couldn't reach JARVIS.");
+      setError(`Couldn't reach ${BRAND}.`);
     } finally {
       setPending(false);
     }

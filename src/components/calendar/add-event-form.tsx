@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
+import { BRAND } from "@/lib/brand";
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -42,7 +43,7 @@ export function AddEventForm() {
       setOpen(false);
       router.refresh();
     } catch {
-      setError("Couldn't reach JARVIS.");
+      setError(`Couldn't reach ${BRAND}.`);
     } finally {
       setSubmitting(false);
     }

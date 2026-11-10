@@ -1,4 +1,5 @@
 import { MusicView } from "@/components/music/music-view";
+import { BRAND } from "@/lib/brand";
 
 export default function MusicPage() {
   return (
@@ -12,7 +13,7 @@ export default function MusicPage() {
         <blockquote className="hidden max-w-52 shrink-0 text-right text-xs italic leading-relaxed text-muted-foreground lg:block">
           &ldquo;The right track clears the static.&rdquo;
           <footer className="mt-1.5 text-[10px] font-medium tracking-wide text-text-dim uppercase not-italic">
-            — JARVIS
+            — {BRAND}
           </footer>
         </blockquote>
       </div>

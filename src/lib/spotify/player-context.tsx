@@ -1,11 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { SpotifyNowPlaying } from "@/server/spotify/types";
+import { BRAND } from "@/lib/brand";
 
 export type SpotifyStatus = "loading" | "not-configured" | "not-connected" | "connected";
 
 const POLL_MS = 5_000;
+/** Poll pace while Spotify isn't connected — nothing is playing, so there's nothing to keep fresh. */
+const IDLE_POLL_MS = 60_000;
 
 interface SpotifyPlayerContextValue {
   /** The browser's own Spotify Connect device id, once the Web Playback SDK is ready. Null until then. */
@@ -69,6 +72,10 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [status, setStatus] = useState<SpotifyStatus>("loading");
   const [nowPlaying, setNowPlaying] = useState<SpotifyNowPlaying | null>(null);
+  const statusRef = useRef<SpotifyStatus>("loading");
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const refresh = useCallback(async () => {
     try {
@@ -97,16 +104,26 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let polling = false;
 
+    // Self-scheduling so the pace can change: a connected player is polled
+    // every 5s, but an unset-up or disconnected one only needs a slow check.
+    async function pollOnce() {
+      timer = null;
+      await refresh();
+      if (cancelled || !polling) return;
+      timer = setTimeout(pollOnce, statusRef.current === "connected" ? POLL_MS : IDLE_POLL_MS);
+    }
     function startPolling() {
-      if (interval !== null) return;
-      interval = setInterval(refresh, POLL_MS);
+      if (polling) return;
+      polling = true;
+      timer = setTimeout(pollOnce, POLL_MS);
     }
     function stopPolling() {
-      if (interval === null) return;
-      clearInterval(interval);
-      interval = null;
+      polling = false;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
     }
     function handleVisibilityChange() {
       if (document.hidden) {
@@ -155,7 +172,7 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
       window.onSpotifyWebPlaybackSDKReady = () => {
         if (cancelled || !window.Spotify) return;
         player = new window.Spotify.Player({
-          name: "JARVIS",
+          name: BRAND,
           getOAuthToken: (callback) => {
             fetch("/api/spotify/player-token")
               .then((res) => res.json())

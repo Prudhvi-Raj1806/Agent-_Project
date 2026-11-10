@@ -66,8 +66,48 @@ export function surfaceRadius(p: SpherePoint, t: number, energy: number): number
       Math.sin(p.z * 3.7 + t * 0.9 - p.seed * 5)) /
     3;
   const amplitude = 0.015 + 0.2 * e;
-  const pulse = Math.sin(p.y * 7 - t * 5) * 0.06 * e;
+  // The pulse only exists while there is energy; skip its sine at rest.
+  const pulse = e > 0 ? Math.sin(p.y * 7 - t * 5) * 0.06 * e : 0;
   return 1 + amplitude * n + pulse;
+}
+
+/** Sines and cosines of the two view rotations — computed once per frame, not once per particle. */
+export interface Rotation {
+  cy: number;
+  sy: number;
+  cx: number;
+  sx: number;
+}
+
+export function makeRotation(rotY: number, rotX: number): Rotation {
+  return { cy: Math.cos(rotY), sy: Math.sin(rotY), cx: Math.cos(rotX), sx: Math.sin(rotX) };
+}
+
+/**
+ * Rotate about Y then X, then apply a mild perspective. Writes
+ * `[x, y, depth, size]` into `out` so the per-frame loop allocates nothing.
+ */
+export function projectInto(
+  out: Float32Array | number[],
+  p: SpherePoint,
+  radiusMul: number,
+  rot: Rotation,
+  view: ViewTransform,
+): void {
+  const x0 = p.x * radiusMul;
+  const y0 = p.y * radiusMul;
+  const z0 = p.z * radiusMul;
+
+  const x1 = x0 * rot.cy + z0 * rot.sy;
+  const z1 = -x0 * rot.sy + z0 * rot.cy;
+  const y2 = y0 * rot.cx - z1 * rot.sx;
+  const z2 = y0 * rot.sx + z1 * rot.cx;
+
+  const persp = 1 / (1 - z2 * 0.18);
+  out[0] = view.cx + x1 * view.scale * persp;
+  out[1] = view.cy + y2 * view.scale * persp;
+  out[2] = Math.min(1, Math.max(0, (z2 + 1) / 2));
+  out[3] = persp;
 }
 
 /** Rotate about Y then X, then apply a mild perspective. */
@@ -78,25 +118,7 @@ export function projectPoint(
   rotX: number,
   view: ViewTransform,
 ): ProjectedPoint {
-  const x0 = p.x * radiusMul;
-  const y0 = p.y * radiusMul;
-  const z0 = p.z * radiusMul;
-
-  const cy = Math.cos(rotY);
-  const sy = Math.sin(rotY);
-  const x1 = x0 * cy + z0 * sy;
-  const z1 = -x0 * sy + z0 * cy;
-
-  const cx = Math.cos(rotX);
-  const sx = Math.sin(rotX);
-  const y2 = y0 * cx - z1 * sx;
-  const z2 = y0 * sx + z1 * cx;
-
-  const persp = 1 / (1 - z2 * 0.18);
-  return {
-    x: view.cx + x1 * view.scale * persp,
-    y: view.cy + y2 * view.scale * persp,
-    depth: Math.min(1, Math.max(0, (z2 + 1) / 2)),
-    size: persp,
-  };
+  const out = [0, 0, 0, 0];
+  projectInto(out, p, radiusMul, makeRotation(rotY, rotX), view);
+  return { x: out[0], y: out[1], depth: out[2], size: out[3] };
 }

@@ -1,5 +1,6 @@
 import { ImaFeedView } from "@/components/ima/ima-feed-view";
 import { getNews } from "@/server/news/service";
+import { BRAND } from "@/lib/brand";
 
 // RSS feeds change constantly — read fresh per request, not baked into the build.
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export default async function ImaPage() {
         <blockquote className="hidden max-w-52 shrink-0 text-right text-xs italic leading-relaxed text-muted-foreground lg:block">
           &ldquo;Signal, not noise.&rdquo;
           <footer className="mt-1.5 text-[10px] font-medium tracking-wide text-text-dim uppercase not-italic">
-            — JARVIS
+            — {BRAND}
           </footer>
         </blockquote>
       </div>

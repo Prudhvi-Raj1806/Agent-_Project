@@ -1,6 +1,7 @@
 import { FocusWorkspace } from "@/components/focus/focus-workspace";
 import { mockEnvironmentControls, mockFocusStats } from "@/lib/data/mock-focus";
 import { getUiTasks } from "@/server/tasks/view";
+import { BRAND } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export default async function FocusPage() {
         <blockquote className="hidden max-w-52 shrink-0 text-right text-xs italic leading-relaxed text-muted-foreground lg:block">
           &ldquo;Deep work is not found. It&rsquo;s protected.&rdquo;
           <footer className="mt-1.5 text-[10px] font-medium tracking-wide text-text-dim uppercase not-italic">
-            — JARVIS
+            — {BRAND}
           </footer>
         </blockquote>
       </div>

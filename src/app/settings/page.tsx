@@ -1,14 +1,15 @@
 import { Bot, Cpu, Ear, Moon, Plug, User } from "lucide-react";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { ClapWakePanel } from "@/components/settings/clap-wake-panel";
+import { HermesPanel } from "@/components/settings/hermes-panel";
 import { SpotifyConnectionRow } from "@/components/settings/spotify-connection-row";
 import { VoicePasscodePanel } from "@/components/settings/voice-passcode-panel";
 import { isSpotifyConnected } from "@/server/spotify/auth";
 import { isSpotifyConfigured } from "@/server/spotify/config";
-import { getHermesConnectionInfo } from "@/server/hermes/factory";
 import { listPublicProviders } from "@/server/omnirouter/service";
 import { getVoicePasscodeSource } from "@/server/voice/passcode";
 import type { ProviderStatus, StatusTone } from "@/lib/data/types";
+import { BRAND } from "@/lib/brand";
 
 // Integration/connection state changes at runtime — read fresh per request.
 export const dynamic = "force-dynamic";
@@ -27,10 +28,6 @@ const statusLabelMap: Record<ProviderStatus, string> = {
   offline: "Offline",
 };
 
-const hermesLabelMap = {
-  agent: { label: "Real Hermes Agent", tone: "success" as StatusTone },
-  mock: { label: "Mock (simulated)", tone: "idle" as StatusTone },
-};
 
 function SettingsSection({
   icon,
@@ -59,14 +56,13 @@ export default function SettingsPage() {
   const providers = listPublicProviders();
   const spotifyConfigured = isSpotifyConfigured();
   const spotifyConnected = isSpotifyConnected();
-  const hermes = getHermesConnectionInfo();
   const voiceSource = getVoicePasscodeSource();
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col gap-4 overflow-y-auto px-8 py-4">
       <div className="shrink-0 pt-1 pb-1">
         <p className="text-xs font-medium tracking-wide text-text-dim uppercase">Settings</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Configure JARVIS, Raj.</h1>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Configure {BRAND}.</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">Profile, appearance, voice, and integrations.</p>
       </div>
 
@@ -85,7 +81,7 @@ export default function SettingsPage() {
 
         <SettingsSection icon={<Moon className="size-4 text-muted-foreground" />} title="Appearance">
           <p className="text-sm text-muted-foreground">
-            Dark — JARVIS&rsquo;s signature look. Additional themes aren&rsquo;t built yet.
+            Dark — {BRAND}&rsquo;s signature look. Additional themes aren&rsquo;t built yet.
           </p>
         </SettingsSection>
 
@@ -105,13 +101,16 @@ export default function SettingsPage() {
           <ClapWakePanel />
         </SettingsSection>
 
+        <SettingsSection
+          icon={<Bot className="size-4 text-muted-foreground" />}
+          title="Hermes"
+          subtitle="The agent that carries out missions: its status and the model it runs on."
+        >
+          <HermesPanel />
+        </SettingsSection>
+
         <SettingsSection icon={<Plug className="size-4 text-muted-foreground" />} title="Integrations">
           <div className="flex flex-col divide-y divide-border">
-            <div className="flex items-center gap-2 py-2.5">
-              <Bot className="size-3.5 shrink-0 text-muted-foreground" />
-              <StatusIndicator tone={hermesLabelMap[hermes.mode].tone} label={hermesLabelMap[hermes.mode].label} />
-              <span className="text-sm text-foreground">Hermes Agent</span>
-            </div>
             {providers.map((provider) => (
               <div key={provider.id} className="flex items-center gap-2 py-2.5">
                 <StatusIndicator tone={statusToneMap[provider.status]} label={statusLabelMap[provider.status]} />

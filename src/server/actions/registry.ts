@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { BRAND } from "@/lib/brand";
 import { nowIso } from "@/server/db/util";
 import { logger } from "@/server/logging/logger";
 import { selectModel } from "@/server/omnirouter/router";
@@ -30,7 +31,7 @@ async function takeNotes(): Promise<ActionRunResult> {
     try {
       await fs.access(NOTES_PATH);
     } catch {
-      await fs.writeFile(NOTES_PATH, "# JARVIS Notes\n\n", "utf-8");
+      await fs.writeFile(NOTES_PATH, `# ${BRAND} Notes\n\n`, "utf-8");
     }
     await execFileAsync("cmd", ["/c", "start", "", NOTES_PATH]);
     return { ok: true, message: "Opened notes.md." };

@@ -1,5 +1,6 @@
 import { SystemMonitorView } from "@/components/system/system-monitor-view";
 import { getUiSystemDetail } from "@/server/system/view";
+import { BRAND } from "@/lib/brand";
 
 // Real telemetry, read fresh per request rather than baked into the build.
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export default async function SystemPage() {
         <blockquote className="hidden max-w-52 shrink-0 text-right text-xs italic leading-relaxed text-muted-foreground lg:block">
           &ldquo;I never report a number I can&rsquo;t measure.&rdquo;
           <footer className="mt-1.5 text-[10px] font-medium tracking-wide text-text-dim uppercase not-italic">
-            — JARVIS
+            — {BRAND}
           </footer>
         </blockquote>
       </div>

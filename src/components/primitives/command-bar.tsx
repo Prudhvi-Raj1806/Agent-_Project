@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Mic, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/lib/brand";
 
 interface CommandBarProps {
   placeholder?: string;
@@ -11,7 +12,7 @@ interface CommandBarProps {
 }
 
 export function CommandBar({
-  placeholder = "Ask JARVIS anything...",
+  placeholder = `Ask ${BRAND} anything...`,
   className,
 }: CommandBarProps) {
   const [value, setValue] = useState("");
@@ -70,7 +71,7 @@ export function CommandBar({
         router.push("/work");
       }
     } catch {
-      setError("Couldn't reach JARVIS.");
+      setError(`Couldn't reach ${BRAND}.`);
       setStatus("error");
     }
   }

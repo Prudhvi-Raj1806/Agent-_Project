@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BRAND } from "@/lib/brand";
 
 export interface ActionRunFeedback {
   actionId: string;
@@ -60,7 +61,7 @@ export function useRunAction() {
         const data = await res.json();
         showFeedback({ actionId: id, ok: Boolean(data.ok), message: data.message, detail: data.detail });
       } catch {
-        showFeedback({ actionId: id, ok: false, message: "Couldn't reach JARVIS." });
+        showFeedback({ actionId: id, ok: false, message: `Couldn't reach ${BRAND}.` });
       } finally {
         setPendingId(null);
       }
