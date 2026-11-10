@@ -13,9 +13,11 @@ import os
 import re
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -48,7 +50,15 @@ OPENAI_VOICES = {
     "marin", "cedar", "default",
 }
 
+# Custom voices (for example ones made with KVoiceWalk) are `<name>.pt` style
+# tensors dropped into this folder. They are matched by file name only, never by
+# a path from a request, and are spoken with the American English pipeline.
+CUSTOM_DIR = Path(__file__).parent / "custom_voices"
+CUSTOM_NAME = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
+CUSTOM_LANG = "a"
+
 _pipelines: dict[str, KPipeline] = {}
+_custom_cache: dict[str, tuple[float, torch.Tensor]] = {}
 _lock = threading.Lock()  # the model is not safe to run from two threads at once
 
 
@@ -58,19 +68,50 @@ def pipeline_for(lang_code: str) -> KPipeline:
     return _pipelines[lang_code]
 
 
-def resolve_voice(requested: str) -> str:
-    """A known Kokoro voice id, else the default for OpenAI names. Anything else is refused."""
+def custom_voice_files() -> dict[str, Path]:
+    """Usable custom voices: well-formed lower-case names that don't shadow a built-in voice."""
+    if not CUSTOM_DIR.is_dir():
+        return {}
+    found: dict[str, Path] = {}
+    for path in sorted(CUSTOM_DIR.glob("*.pt")):
+        name = path.stem.lower()
+        if CUSTOM_NAME.match(name) and name not in VOICE_SET and name not in OPENAI_VOICES:
+            found[name] = path
+    return found
+
+
+def load_custom_voice(name: str, path: Path) -> torch.Tensor:
+    """Loads (and caches by modification time) a voice tensor, refusing anything that isn't a Kokoro style tensor."""
+    mtime = path.stat().st_mtime
+    cached = _custom_cache.get(name)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        tensor = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception as exc:  # unreadable or not a plain tensor file
+        raise HTTPException(status_code=400, detail=f"Custom voice '{name}' can't be loaded: {type(exc).__name__}.") from exc
+    if not isinstance(tensor, torch.Tensor) or not tensor.is_floating_point() or tensor.dim() < 2 or tensor.shape[-1] != 256:
+        raise HTTPException(status_code=400, detail=f"Custom voice '{name}' isn't a Kokoro voice tensor.")
+    _custom_cache[name] = (mtime, tensor)
+    return tensor
+
+
+def resolve_voice(requested: str) -> tuple[str, "str | torch.Tensor"]:
+    """(language code, voice) for a built-in, custom or OpenAI-alias voice. Anything else is refused."""
     voice = requested.strip().lower()
     if voice in OPENAI_VOICES:
-        return DEFAULT_VOICE
-    if voice not in VOICE_SET:
-        raise HTTPException(status_code=400, detail=f"Unknown voice '{requested[:40]}'. See GET /v1/voices.")
-    return voice
+        return DEFAULT_VOICE[0], DEFAULT_VOICE
+    if voice in VOICE_SET:
+        return voice[0], voice
+    custom = custom_voice_files().get(voice)
+    if custom is not None:
+        return CUSTOM_LANG, load_custom_voice(voice, custom)
+    raise HTTPException(status_code=400, detail=f"Unknown voice '{requested[:40]}'. See GET /v1/voices.")
 
 
-def synthesize(text: str, voice: str, speed: float) -> np.ndarray:
+def synthesize(text: str, lang_code: str, voice: "str | torch.Tensor", speed: float) -> np.ndarray:
     with _lock:
-        pipeline = pipeline_for(voice[0])
+        pipeline = pipeline_for(lang_code)
         parts = []
         for result in pipeline(text, voice=voice, speed=speed, split_pattern=r"\n+"):
             audio = result.audio if hasattr(result, "audio") else result[2]
@@ -108,7 +149,8 @@ def health():
 
 @app.get("/v1/voices")
 def voices():
-    return {"voices": VOICES, "default": DEFAULT_VOICE}
+    custom = list(custom_voice_files())
+    return {"voices": VOICES + custom, "custom": custom, "default": DEFAULT_VOICE}
 
 
 @app.post("/v1/audio/speech")
@@ -120,7 +162,8 @@ def speech(req: SpeechRequest):
     if not text:
         raise HTTPException(status_code=400, detail="input is empty.")
 
-    audio = synthesize(text, resolve_voice(req.voice), req.speed)
+    lang_code, voice = resolve_voice(req.voice)
+    audio = synthesize(text, lang_code, voice, req.speed)
     buffer = io.BytesIO()
     if fmt == "mp3":
         sf.write(buffer, audio, SAMPLE_RATE, format="MP3")

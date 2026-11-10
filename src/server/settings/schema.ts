@@ -84,14 +84,14 @@ function parseVoiceName(value: unknown): string {
   return voice;
 }
 
-/** A Kokoro voice id such as af_heart: language letter, gender letter, underscore, name. */
-const KOKORO_VOICE = /^[a-z]{2}_[a-z0-9]{2,20}$/;
+/** A Kokoro voice id: a built-in such as af_heart, or the file name of a custom voice. No dots or slashes, ever. */
+const KOKORO_VOICE = /^[a-z][a-z0-9_-]{1,31}$/;
 const DEFAULT_KOKORO_VOICE = "af_heart";
 
 function parseKokoroVoice(value: unknown): string {
   if (typeof value !== "string") throw new Error("Expected text.");
   const voice = value.trim().toLowerCase();
-  if (!KOKORO_VOICE.test(voice)) throw new Error("A Kokoro voice looks like af_heart or bm_george.");
+  if (!KOKORO_VOICE.test(voice)) throw new Error("A Kokoro voice looks like af_heart, bm_george or a custom voice name.");
   return voice;
 }
 

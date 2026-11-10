@@ -31,11 +31,14 @@ async function voiceStudioVoices(): Promise<{ available: boolean; voices: { id: 
   return { available: true, voices };
 }
 
-async function kokoroVoices(): Promise<{ available: boolean; voices: string[] }> {
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").slice(0, MAX_VOICES) : [];
+
+async function kokoroVoices(): Promise<{ available: boolean; voices: string[]; custom: string[] }> {
   const base = kokoroBaseUrl();
-  const body = base ? ((await getJson(`${base}/v1/voices`)) as { voices?: unknown } | null) : null;
-  if (!body || !Array.isArray(body.voices)) return { available: false, voices: [] };
-  return { available: true, voices: body.voices.filter((v): v is string => typeof v === "string").slice(0, MAX_VOICES) };
+  const body = base ? ((await getJson(`${base}/v1/voices`)) as { voices?: unknown; custom?: unknown } | null) : null;
+  if (!body || !Array.isArray(body.voices)) return { available: false, voices: [], custom: [] };
+  return { available: true, voices: strings(body.voices), custom: strings(body.custom) };
 }
 
 /**

@@ -12,10 +12,10 @@ interface Voice {
 interface VoiceList {
   available: boolean;
   voices: Voice[];
-  kokoro: { available: boolean; voices: string[] };
+  kokoro: { available: boolean; voices: string[]; custom: string[] };
 }
 
-const NO_VOICES: VoiceList = { available: false, voices: [], kokoro: { available: false, voices: [] } };
+const NO_VOICES: VoiceList = { available: false, voices: [], kokoro: { available: false, voices: [], custom: [] } };
 
 const LANGUAGES: Record<string, string> = {
   a: "US English",
@@ -29,8 +29,9 @@ const LANGUAGES: Record<string, string> = {
   z: "Mandarin",
 };
 
-/** af_heart becomes "Heart · US English, female". */
-function kokoroLabel(id: string): string {
+/** af_heart becomes "Heart · US English, female"; a custom voice becomes "Friday · custom voice". */
+function kokoroLabel(id: string, custom: string[] = []): string {
+  if (custom.includes(id)) return `${id.charAt(0).toUpperCase()}${id.slice(1)} · custom voice`;
   const [code, name = id] = id.split("_");
   const language = LANGUAGES[code?.[0] ?? ""] ?? "Other";
   const gender = code?.[1] === "m" ? "male" : "female";
@@ -136,6 +137,7 @@ export function VoicePanel() {
   const currentVoice = settings["voice.voicestudioVoice"];
   const currentListed = voiceOptions.some((v) => v.id === currentVoice);
   const kokoroOptions = voices?.kokoro.voices ?? [];
+  const kokoroCustom = voices?.kokoro.custom ?? [];
   const currentKokoro = settings["voice.kokoroVoice"];
 
   return (
@@ -169,10 +171,12 @@ export function VoicePanel() {
           disabled={!voices?.kokoro.available}
           onChange={(e) => save({ "voice.kokoroVoice": e.target.value })}
         >
-          {!kokoroOptions.includes(currentKokoro) && <option value={currentKokoro}>{kokoroLabel(currentKokoro)}</option>}
+          {!kokoroOptions.includes(currentKokoro) && (
+            <option value={currentKokoro}>{kokoroLabel(currentKokoro, kokoroCustom)}</option>
+          )}
           {kokoroOptions.map((id) => (
             <option key={id} value={id}>
-              {kokoroLabel(id)}
+              {kokoroLabel(id, kokoroCustom)}
             </option>
           ))}
         </select>

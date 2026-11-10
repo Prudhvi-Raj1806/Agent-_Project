@@ -92,6 +92,17 @@ describe("settings store", () => {
       }
     });
 
+    it("accepts built-in and custom Kokoro voice names, and refuses anything path-like", () => {
+      setSettings({ "voice.kokoroVoice": " BM_George " });
+      expect(getSetting("voice.kokoroVoice")).toBe("bm_george");
+      setSettings({ "voice.kokoroVoice": "friday" });
+      expect(getSetting("voice.kokoroVoice")).toBe("friday");
+      for (const bad of ["", "a", "../../x", "a/b", "c:\\\\x", "friday.pt", "Friday!", "x".repeat(33), 7]) {
+        expect(() => setSettings({ "voice.kokoroVoice": bad as never })).toThrow();
+      }
+      expect(getSetting("voice.kokoroVoice")).toBe("friday");
+    });
+
     it("stores the auto-send switch as a boolean only", () => {
       setSettings({ "voice.autoSendDictation": true });
       expect(getSetting("voice.autoSendDictation")).toBe(true);

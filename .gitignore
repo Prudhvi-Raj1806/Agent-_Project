@@ -50,3 +50,4 @@ next-env.d.ts
 # local Kokoro speech server
 /services/kokoro/.venv/
 __pycache__/
+/services/kokoro/custom_voices/*.pt
