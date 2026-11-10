@@ -20,6 +20,17 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Phone access
+
+The dashboard works from a phone over [Tailscale](https://tailscale.com), never over the open network.
+
+1. **Start the server from a normal terminal** (not from inside another app's sandbox) with `npm run dev` or `npm start`. Both bind to `127.0.0.1`, so nothing else on your Wi-Fi can reach it. Settings → Phone and remote access warns if the server is reachable on a network address.
+2. **Once, in the [Tailscale admin console](https://login.tailscale.com/admin/dns):** turn on MagicDNS and HTTPS certificates for your tailnet.
+3. **In Settings → Phone and remote access on the PC:** press **Enable phone access** (this runs `tailscale serve` for you), then switch **Allow the phone to connect** on. The panel shows the address and a QR code.
+4. **On the phone**, signed into the same Tailscale account, scan the QR code or open the address.
+
+Turning the switch off, or pressing Disable, cuts the phone off at once. Changes made from the phone are recorded in the audit log.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

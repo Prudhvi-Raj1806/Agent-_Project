@@ -143,8 +143,9 @@ loopback connections, nothing else can forge those headers.
 | Tailscale headers but remote is off, or the login or `Host` doesn't match | 403 |
 | Anything else | 403 |
 
-Remote requests are written to the existing `audit_events` table (path, method,
-login, time).
+Remote requests that change something (POST, PUT, PATCH, DELETE) are written to the
+existing `audit_events` table (path, method, login, time). Reads are not logged, so
+status polling doesn't fill the log.
 
 **Remote access panel (Settings, used at the PC).**
 - On/off switch for `remote.enabled` (default off).
