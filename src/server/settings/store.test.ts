@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDbForTests } from "@/server/db/client";
 import { getAllSettings, getSetting, setSettings } from "./store";
 
@@ -12,6 +12,10 @@ describe("settings store", () => {
       "remote.enabled": false,
       "remote.allowedLogins": [],
       "remote.tailnetHost": "",
+      "voice.provider": "auto",
+      "voice.voicestudioVoice": "alloy",
+      "voice.autoSendDictation": false,
+      "voice.replyDevice": "this-device",
     });
   });
 
@@ -53,5 +57,44 @@ describe("settings store", () => {
     expect(getSetting("remote.tailnetHost")).toBe("");
     expect(() => setSettings({ "remote.tailnetHost": "evil.com/x" })).toThrow();
     expect(() => setSettings({ "remote.tailnetHost": "a b" })).toThrow();
+  });
+
+  describe("voice settings", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("stores a valid provider and reply device, and refuses anything else", () => {
+      setSettings({ "voice.provider": "elevenlabs", "voice.replyDevice": "pc" });
+      expect(getSetting("voice.provider")).toBe("elevenlabs");
+      expect(getSetting("voice.replyDevice")).toBe("pc");
+      expect(() => setSettings({ "voice.provider": "siri" as never })).toThrow();
+      expect(() => setSettings({ "voice.replyDevice": "tv" as never })).toThrow();
+      expect(getSetting("voice.provider")).toBe("elevenlabs");
+    });
+
+    it("defaults the Voice Studio voice to VOICESTUDIO_VOICE, and a stored voice wins over it", () => {
+      vi.stubEnv("VOICESTUDIO_VOICE", "profile-123");
+      expect(getSetting("voice.voicestudioVoice")).toBe("profile-123");
+      setSettings({ "voice.voicestudioVoice": "  Morgan Freeman " });
+      expect(getSetting("voice.voicestudioVoice")).toBe("Morgan Freeman");
+    });
+
+    it("falls back to alloy when VOICESTUDIO_VOICE is unusable", () => {
+      vi.stubEnv("VOICESTUDIO_VOICE", "../../etc");
+      expect(getSetting("voice.voicestudioVoice")).toBe("alloy");
+    });
+
+    it("refuses a voice with unsafe characters, an empty one, or one over 64 characters", () => {
+      for (const bad of ["", "   ", "a/b", "x\"y", "<v>", "a".repeat(65), 7]) {
+        expect(() => setSettings({ "voice.voicestudioVoice": bad as never })).toThrow();
+      }
+    });
+
+    it("stores the auto-send switch as a boolean only", () => {
+      setSettings({ "voice.autoSendDictation": true });
+      expect(getSetting("voice.autoSendDictation")).toBe(true);
+      expect(() => setSettings({ "voice.autoSendDictation": "yes" as never })).toThrow();
+    });
   });
 });

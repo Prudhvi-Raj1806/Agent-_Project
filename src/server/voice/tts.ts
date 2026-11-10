@@ -9,7 +9,12 @@
  *
  * Nothing here ever blocks speech on a provider the user hasn't set up or
  * hasn't started: an unreachable provider is skipped, not an error.
+ *
+ * Settings can pin one provider (`voice.provider`); the chain then contains
+ * only that one, and "browser" means no server-side provider at all.
  */
+
+import type { VoiceProvider } from "@/server/settings/schema";
 
 export type SpeechProviderName = "voicestudio" | "elevenlabs";
 
@@ -19,12 +24,23 @@ export interface SynthesizedSpeech {
   provider: SpeechProviderName;
 }
 
+/** What the owner chose in Settings: which provider, and which Voice Studio voice. */
+export interface VoicePrefs {
+  provider: VoiceProvider;
+  voice: string;
+}
+
+/** The choice when nothing is stored: today's automatic order and the environment's voice. */
+export function envVoicePrefs(): VoicePrefs {
+  return { provider: "auto", voice: process.env.VOICESTUDIO_VOICE?.trim() || "alloy" };
+}
+
 const VOICESTUDIO_DEFAULT_URL = "http://localhost:3900";
 const HEALTH_TIMEOUT_MS = 800;
 const HEALTH_TTL_MS = 10_000;
 const SPEECH_TIMEOUT_MS = 30_000;
 
-function voiceStudioBaseUrl(): string | null {
+export function voiceStudioBaseUrl(): string | null {
   const configured = process.env.VOICESTUDIO_URL?.trim();
   if (configured?.toLowerCase() === "off") return null;
   return (configured || VOICESTUDIO_DEFAULT_URL).replace(/\/+$/, "");
@@ -58,7 +74,7 @@ export async function voiceStudioReachable(): Promise<boolean> {
   return ok;
 }
 
-async function synthesizeWithVoiceStudio(text: string): Promise<SynthesizedSpeech | null> {
+async function synthesizeWithVoiceStudio(text: string, voice: string): Promise<SynthesizedSpeech | null> {
   const baseUrl = voiceStudioBaseUrl();
   if (!baseUrl || !(await voiceStudioReachable())) return null;
   try {
@@ -67,7 +83,7 @@ async function synthesizeWithVoiceStudio(text: string): Promise<SynthesizedSpeec
       headers: { "Content-Type": "application/json", Authorization: "Bearer local" },
       body: JSON.stringify({
         model: "tts-1",
-        voice: process.env.VOICESTUDIO_VOICE?.trim() || "alloy",
+        voice,
         input: text,
         response_format: "mp3",
       }),
@@ -110,12 +126,39 @@ async function synthesizeWithElevenLabs(text: string): Promise<SynthesizedSpeech
   }
 }
 
-/** Runs the provider chain; null means "no provider could speak this — use the browser voice". */
-export async function synthesizeSpeechDetailed(text: string): Promise<SynthesizedSpeech | null> {
-  return (await synthesizeWithVoiceStudio(text)) ?? (await synthesizeWithElevenLabs(text));
+/**
+ * Runs the provider chain; null means "no provider could speak this — use the
+ * browser voice". A pinned provider is the whole chain: it never falls through
+ * to another paid or local one behind the owner's back.
+ */
+export async function synthesizeSpeechDetailed(
+  text: string,
+  prefs: VoicePrefs = envVoicePrefs(),
+): Promise<SynthesizedSpeech | null> {
+  switch (prefs.provider) {
+    case "browser":
+      return null;
+    case "voicestudio":
+      return synthesizeWithVoiceStudio(text, prefs.voice);
+    case "elevenlabs":
+      return synthesizeWithElevenLabs(text);
+    default:
+      return (await synthesizeWithVoiceStudio(text, prefs.voice)) ?? (await synthesizeWithElevenLabs(text));
+  }
 }
 
 /** Audio bytes only — kept for callers that don't care which provider answered. */
-export async function synthesizeSpeech(text: string): Promise<Buffer | null> {
-  return (await synthesizeSpeechDetailed(text))?.audio ?? null;
+export async function synthesizeSpeech(text: string, prefs?: VoicePrefs): Promise<Buffer | null> {
+  return (await synthesizeSpeechDetailed(text, prefs))?.audio ?? null;
+}
+
+/** Which voice a line would come out in right now, given the choice and what is actually up. */
+export function effectiveSpeechProvider(
+  choice: VoiceProvider,
+  available: { voicestudio: boolean; elevenlabs: boolean },
+): SpeechProviderName | "browser" {
+  if (choice === "browser") return "browser";
+  if (choice === "voicestudio") return available.voicestudio ? "voicestudio" : "browser";
+  if (choice === "elevenlabs") return available.elevenlabs ? "elevenlabs" : "browser";
+  return available.voicestudio ? "voicestudio" : available.elevenlabs ? "elevenlabs" : "browser";
 }

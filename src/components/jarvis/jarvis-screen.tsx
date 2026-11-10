@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Cloud, CloudRain, CloudSnow, SendHorizontal, Square, Sun } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AudioLines, Cloud, CloudRain, CloudSnow, Mic, SendHorizontal, Square, Sun } from "lucide-react";
 import { HudApproval } from "@/components/jarvis/hud-approval";
 import { HudClock } from "@/components/jarvis/hud-clock";
 import { HudNowPlaying } from "@/components/jarvis/hud-now-playing";
@@ -19,6 +19,8 @@ import {
 } from "@/lib/jarvis/mission-run";
 import { missionSpeech } from "@/lib/jarvis/mission-speech";
 import { useJarvisVoice, type JarvisVoiceState } from "@/lib/jarvis/use-jarvis-voice";
+import { useSpeechInput } from "@/lib/jarvis/use-speech-input";
+import { useAppSettings } from "@/lib/settings/app-settings-context";
 import type { NewsItem, ScheduleItem, SystemStatus, WeatherCondition, WeatherStatus } from "@/lib/data/types";
 import type { Mission, PendingToolApproval } from "@/server/missions/types";
 import { cn } from "@/lib/utils";
@@ -56,6 +58,13 @@ const speechLabel: Record<VoiceStatus["speech"], string> = {
 };
 
 const AUTO_SEND_DELAY_MS = 700;
+
+/** True when the page was opened on this PC itself, rather than from another device such as the phone. */
+function isLocalHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname.endsWith(".localhost");
+}
+
+const subscribeNever = () => () => {};
 
 function Readout({ label, value }: { label: string; value: string }) {
   return (
@@ -108,13 +117,21 @@ function handyChipValue(handy: VoiceStatus["handy"] | undefined): { value: strin
 }
 
 export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenProps) {
-  const voice = useJarvisVoice();
+  const { settings, update } = useAppSettings();
+  // Phone (or any other device) vs this PC: Handy only exists on the PC, and replies can play here or there.
+  const remote = useSyncExternalStore(
+    subscribeNever,
+    () => !isLocalHost(window.location.hostname),
+    () => false,
+  );
+  const playOnPc = settings["voice.replyDevice"] === "pc";
+  const voice = useJarvisVoice({ playOnPc });
   const { setThinking, speak, stop: stopVoice } = voice;
   const [draft, setDraft] = useState("");
   const [heard, setHeard] = useState("");
   const [working, setWorking] = useState(false);
   const [dictating, setDictating] = useState(false);
-  const [autoSend, setAutoSend] = useState(false);
+  const [autoSend, setAutoSend] = useState(settings["voice.autoSendDictation"]);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastMissionId, setLastMissionId] = useState<string | null>(null);
@@ -254,6 +271,8 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
     setWorking(false);
     setThinking(false);
     stopVoice();
+    if (playOnPc) void fetch("/api/voice/stop-pc", { method: "POST" }).catch(() => {});
+    speechInput.stop();
   };
 
   const toggleDictation = async () => {
@@ -296,6 +315,18 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
   const WeatherIcon = weather ? weatherIcon[weather.condition] : null;
   const handyChip = handyChipValue(voiceStatus?.handy);
   const handyReady = Boolean(voiceStatus?.handy.running);
+
+  // On the phone the mic uses the browser's speech recognition; on the PC, Handy.
+  const speechInput = useSpeechInput((text) => {
+    if (autoSend) {
+      void ask(text);
+    } else {
+      setDraft(text);
+      inputRef.current?.focus();
+    }
+  });
+  const micActive = remote ? speechInput.listening : dictating;
+  const micReady = remote ? speechInput.supported : handyReady;
 
   const captionText =
     voice.caption || (working ? "Working on it…" : "Type a request, dictate it with Handy, or tap Brief.");
@@ -378,35 +409,43 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
             }}
             className={cn(
               "flex w-full items-center gap-2 border bg-glass px-3 py-2 backdrop-blur-sm transition-colors",
-              dictating ? "border-accent-cyan/60" : "border-accent-cyan/20",
+              micActive ? "border-accent-cyan/60" : "border-accent-cyan/20",
             )}
           >
             <button
               type="button"
-              onClick={toggleDictation}
-              disabled={!handyReady}
-              aria-label={dictating ? "Stop dictation" : "Dictate with Handy"}
-              aria-pressed={dictating}
+              onClick={remote ? speechInput.toggle : toggleDictation}
+              disabled={!micReady}
+              aria-label={
+                micActive ? "Stop dictation" : remote ? "Dictate on this phone" : "Dictate with Handy"
+              }
+              aria-pressed={micActive}
               title={
-                handyReady
-                  ? dictating
-                    ? "Stop — Handy will paste what you said"
-                    : "Dictate with Handy"
-                  : "Open Handy to dictate"
+                micReady
+                  ? micActive
+                    ? remote
+                      ? "Stop listening"
+                      : "Stop — Handy will paste what you said"
+                    : remote
+                      ? "Dictate on this phone"
+                      : "Dictate with Handy"
+                  : remote
+                    ? "Speech input isn't supported in this browser"
+                    : "Open Handy to dictate"
               }
               className={cn(
                 "flex size-7 max-md:size-11 shrink-0 items-center justify-center transition-colors disabled:opacity-40",
-                dictating ? "animate-pulse text-accent-cyan" : "text-muted-foreground hover:text-accent-cyan",
+                micActive ? "animate-pulse text-accent-cyan" : "text-muted-foreground hover:text-accent-cyan",
               )}
             >
-              <AudioLines className="size-4" />
+              {remote ? <Mic className="size-4" /> : <AudioLines className="size-4" />}
             </button>
             <input
               ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onPaste={onPaste}
-              placeholder={dictating ? "Listening… speak, then press the mic again" : `Ask ${BRAND} to do something…`}
+              placeholder={micActive ? "Listening… speak, then press the mic again" : `Ask ${BRAND} to do something…`}
               aria-label={`Request for ${BRAND}`}
               autoComplete="off"
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-text-dim"
@@ -440,12 +479,15 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               value={voiceStatus ? speechLabel[voiceStatus.speech] : "…"}
               ok={voiceStatus?.speech === "voicestudio" || voiceStatus?.speech === "elevenlabs"}
             />
-            <StatusChip label="Handy" value={handyChip.value} ok={handyChip.ok} />
+            {!remote && <StatusChip label="Handy" value={handyChip.value} ok={handyChip.ok} />}
             <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-text-dim max-md:min-h-11">
               <input
                 type="checkbox"
                 checked={autoSend}
-                onChange={(e) => setAutoSend(e.target.checked)}
+                onChange={(e) => {
+                  setAutoSend(e.target.checked);
+                  void update({ "voice.autoSendDictation": e.target.checked }).catch(() => {});
+                }}
                 className="size-3 accent-[var(--jarvis-cyan)]"
               />
               Send dictation automatically

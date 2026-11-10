@@ -2,10 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_HEADER } from "@/server/access/guard";
 import { evaluateAccess } from "@/server/access/gate";
 import { recordAudit } from "@/server/security/audit";
+import { defaultSettings } from "@/server/settings/schema";
 import { getAllSettings, type SettingsShape } from "@/server/settings/store";
 
 /** Used when the settings can't be read (for example a locked database): remote stays off, the owner at the PC still gets in. */
-const FAIL_CLOSED: SettingsShape = { "remote.enabled": false, "remote.allowedLogins": [], "remote.tailnetHost": "" };
+const FAIL_CLOSED: SettingsShape = {
+  ...defaultSettings(),
+  "remote.enabled": false,
+  "remote.allowedLogins": [],
+  "remote.tailnetHost": "",
+};
 
 /** Read fresh on every request so turning remote access off, or removing a login, takes effect immediately. */
 function currentSettings(): SettingsShape {

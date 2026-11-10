@@ -33,10 +33,19 @@ export interface JarvisVoice {
  *   nudged by word-boundary events. It's labelled as such in the UI code,
  *   never presented as measured audio.
  */
-export function useJarvisVoice(): JarvisVoice {
+export interface JarvisVoiceOptions {
+  /** Play replies on this PC's speakers (through the server) instead of on the device that asked. */
+  playOnPc?: boolean;
+}
+
+export function useJarvisVoice(options: JarvisVoiceOptions = {}): JarvisVoice {
   const [state, setState] = useState<JarvisVoiceState>("idle");
   const [caption, setCaption] = useState("");
   const levelRef = useRef(0);
+  const playOnPcRef = useRef(options.playOnPc ?? false);
+  useEffect(() => {
+    playOnPcRef.current = options.playOnPc ?? false;
+  }, [options.playOnPc]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -137,6 +146,39 @@ export function useJarvisVoice(): JarvisVoice {
     [finish, startLoop],
   );
 
+  /** Plays a line on this PC's speakers through the server, so a phone can reply in the room. */
+  const playOnPcLine = useCallback(
+    (line: string, requestId: number) => {
+      releaseAudio();
+      modeRef.current = "synthetic";
+      startedAtRef.current = performance.now();
+      setState("speaking");
+      startLoop();
+
+      fetch("/api/voice/speak-pc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: line }),
+      })
+        .then((res) => {
+          if (requestId !== requestIdRef.current) return;
+          if (res.status === 409) return finish(requestId); // stopped on purpose
+          if (!res.ok) {
+            releaseAudio();
+            speakBuiltIn(line, requestId);
+            return;
+          }
+          finish(requestId);
+        })
+        .catch(() => {
+          if (requestId !== requestIdRef.current) return;
+          releaseAudio();
+          speakBuiltIn(line, requestId);
+        });
+    },
+    [finish, releaseAudio, speakBuiltIn, startLoop],
+  );
+
   const speak = useCallback(
     (text: string) => {
       const line = text.trim();
@@ -145,6 +187,11 @@ export function useJarvisVoice(): JarvisVoice {
       releaseAudio();
       setCaption(line);
       setState("thinking");
+
+      if (playOnPcRef.current) {
+        playOnPcLine(line, requestId);
+        return;
+      }
 
       fetch("/api/voice/speak", {
         method: "POST",
@@ -191,7 +238,7 @@ export function useJarvisVoice(): JarvisVoice {
           speakBuiltIn(line, requestId);
         });
     },
-    [finish, releaseAudio, speakBuiltIn, startLoop],
+    [finish, playOnPcLine, releaseAudio, speakBuiltIn, startLoop],
   );
 
   const stop = useCallback(() => {

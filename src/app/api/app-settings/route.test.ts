@@ -26,6 +26,10 @@ describe("/api/app-settings", () => {
       "remote.enabled": false,
       "remote.allowedLogins": [],
       "remote.tailnetHost": "",
+      "voice.provider": "auto",
+      "voice.voicestudioVoice": "alloy",
+      "voice.autoSendDictation": false,
+      "voice.replyDevice": "this-device",
     });
   });
 

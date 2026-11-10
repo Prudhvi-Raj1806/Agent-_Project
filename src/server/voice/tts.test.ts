@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetVoiceStudioHealthCache, synthesizeSpeechDetailed, voiceStudioReachable } from "./tts";
+import {
+  effectiveSpeechProvider,
+  resetVoiceStudioHealthCache,
+  synthesizeSpeechDetailed,
+  voiceStudioReachable,
+} from "./tts";
 
 const bytes = (s: string) => new TextEncoder().encode(s).buffer;
 
@@ -93,5 +98,66 @@ describe("speech provider chain", () => {
     expect(await voiceStudioReachable()).toBe(false);
     expect(await voiceStudioReachable()).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("with a chosen provider", () => {
+    const bothUp = () => {
+      vi.stubEnv("ELEVENLABS_API_KEY", "k");
+      vi.stubEnv("ELEVENLABS_VOICE_ID", "v");
+      fetchMock.mockImplementation(async (url: string) => {
+        if (String(url).endsWith("/health")) return new Response("{}");
+        return audioResponse(String(url).includes("elevenlabs") ? "el-audio" : "vs-audio");
+      });
+    };
+    const touched = (part: string) => fetchMock.mock.calls.some(([u]) => String(u).includes(part));
+
+    it("elevenlabs: never contacts VoiceStudio, even when it is running", async () => {
+      bothUp();
+      const out = await synthesizeSpeechDetailed("hello", { provider: "elevenlabs", voice: "alloy" });
+      expect(out?.provider).toBe("elevenlabs");
+      expect(touched("localhost:3900")).toBe(false);
+    });
+
+    it("voicestudio: does not fall through to ElevenLabs when VoiceStudio is down", async () => {
+      vi.stubEnv("ELEVENLABS_API_KEY", "k");
+      vi.stubEnv("ELEVENLABS_VOICE_ID", "v");
+      fetchMock.mockImplementation(async (url: string) => {
+        if (String(url).includes("localhost:3900")) throw new Error("ECONNREFUSED");
+        return audioResponse("el-audio");
+      });
+      expect(await synthesizeSpeechDetailed("hello", { provider: "voicestudio", voice: "alloy" })).toBeNull();
+      expect(touched("elevenlabs")).toBe(false);
+    });
+
+    it("browser: returns null without contacting any provider", async () => {
+      bothUp();
+      expect(await synthesizeSpeechDetailed("hello", { provider: "browser", voice: "alloy" })).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("sends the chosen voice to VoiceStudio instead of the environment's", async () => {
+      vi.stubEnv("VOICESTUDIO_VOICE", "from-env");
+      bothUp();
+      await synthesizeSpeechDetailed("hi", { provider: "auto", voice: "Chosen Voice" });
+      const speechCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/v1/audio/speech"))!;
+      expect(JSON.parse(speechCall[1].body).voice).toBe("Chosen Voice");
+    });
+  });
+
+  describe("effectiveSpeechProvider", () => {
+    const state = (voicestudio: boolean, elevenlabs: boolean) => ({ voicestudio, elevenlabs });
+
+    it("auto prefers VoiceStudio, then ElevenLabs, then the browser", () => {
+      expect(effectiveSpeechProvider("auto", state(true, true))).toBe("voicestudio");
+      expect(effectiveSpeechProvider("auto", state(false, true))).toBe("elevenlabs");
+      expect(effectiveSpeechProvider("auto", state(false, false))).toBe("browser");
+    });
+
+    it("a chosen provider that is unavailable means the browser speaks", () => {
+      expect(effectiveSpeechProvider("voicestudio", state(false, true))).toBe("browser");
+      expect(effectiveSpeechProvider("elevenlabs", state(true, false))).toBe("browser");
+      expect(effectiveSpeechProvider("elevenlabs", state(true, true))).toBe("elevenlabs");
+      expect(effectiveSpeechProvider("browser", state(true, true))).toBe("browser");
+    });
   });
 });

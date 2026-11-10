@@ -5,6 +5,7 @@ import { HermesPanel } from "@/components/settings/hermes-panel";
 import { RemoteAccessPanel } from "@/components/settings/remote-access-panel";
 import { ServicesPanel } from "@/components/settings/services-panel";
 import { SpotifyConnectionRow } from "@/components/settings/spotify-connection-row";
+import { VoicePanel } from "@/components/settings/voice-panel";
 import { VoicePasscodePanel } from "@/components/settings/voice-passcode-panel";
 import { isSpotifyConnected } from "@/server/spotify/auth";
 import { isSpotifyConfigured } from "@/server/spotify/config";
@@ -92,7 +93,10 @@ export default function SettingsPage() {
           title="Voice"
           subtitle="Gates risky Quick Actions like Control Computer."
         >
-          <VoicePasscodePanel source={voiceSource} />
+          <VoicePanel />
+          <div className="mt-6 border-t border-border pt-5">
+            <VoicePasscodePanel source={voiceSource} />
+          </div>
         </SettingsSection>
 
         <SettingsSection
