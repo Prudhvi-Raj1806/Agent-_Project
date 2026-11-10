@@ -13,3 +13,12 @@ export function requireAccess(request: Request): NextResponse | null {
   if (via === "local" || via === "tailscale") return null;
   return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 }
+
+/**
+ * For routes that change who may reach this server (remote switch, allowed
+ * logins, publishing to the tailnet): only the owner at the PC, never a phone.
+ */
+export function requireLocal(request: Request): NextResponse | null {
+  if (request.headers.get(ACCESS_HEADER) === "local") return null;
+  return NextResponse.json({ error: "This can only be changed on the PC itself." }, { status: 403 });
+}

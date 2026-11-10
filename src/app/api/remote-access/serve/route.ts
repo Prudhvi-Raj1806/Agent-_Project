@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getRemoteAccess } from "@/server/access";
-import { requireAccess } from "@/server/access/guard";
+import { requireLocal } from "@/server/access/guard";
+import { ExposedServerError } from "@/server/access/remote-access";
 
 /** Turns phone access (the Tailscale proxy to this server) on or off. Only the two fixed actions are accepted. */
 export async function POST(request: Request) {
-  const denied = requireAccess(request);
+  const denied = requireLocal(request);
   if (denied) return denied;
 
   let action: unknown;
@@ -18,5 +19,10 @@ export async function POST(request: Request) {
   }
 
   const port = Number(new URL(request.url).port);
-  return NextResponse.json(await getRemoteAccess().serve(action, Number.isInteger(port) && port > 0 ? port : 3000));
+  try {
+    return NextResponse.json(await getRemoteAccess().serve(action, Number.isInteger(port) && port > 0 ? port : 3000));
+  } catch (err) {
+    if (err instanceof ExposedServerError) return NextResponse.json({ error: err.message }, { status: 409 });
+    throw err;
+  }
 }

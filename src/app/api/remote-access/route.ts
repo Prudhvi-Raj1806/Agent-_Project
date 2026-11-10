@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRemoteAccess } from "@/server/access";
-import { requireAccess } from "@/server/access/guard";
+import { requireAccess, requireLocal } from "@/server/access/guard";
+import { ExposedServerError } from "@/server/access/remote-access";
 
 function portOf(request: Request): number {
   const port = Number(new URL(request.url).port);
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
 
 /** Changes the remote switch and/or the allowed logins; an invalid value stores nothing. */
 export async function PUT(request: Request) {
-  const denied = requireAccess(request);
+  const denied = requireLocal(request);
   if (denied) return denied;
 
   let body: unknown;
@@ -31,9 +32,10 @@ export async function PUT(request: Request) {
   const { enabled, allowedLogins } = body as { enabled?: unknown; allowedLogins?: unknown };
   try {
     const access = getRemoteAccess();
-    access.update({ enabled: enabled as boolean | undefined, allowedLogins: allowedLogins as string[] | undefined });
+    await access.update({ enabled: enabled as boolean | undefined, allowedLogins: allowedLogins as string[] | undefined }, portOf(request));
     return NextResponse.json(await access.state(portOf(request)));
   } catch (err) {
+    if (err instanceof ExposedServerError) return NextResponse.json({ error: err.message }, { status: 409 });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid value." }, { status: 400 });
   }
 }

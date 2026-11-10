@@ -37,7 +37,7 @@ function hostnameOf(value: string | null): string | null {
   }
 }
 
-/** True when there is no Origin, or it names `isAllowed` hosts only. "null" (sandboxed pages) never passes. */
+/** True when there is no Origin, or its hostname passes `isAllowed`. "null" (sandboxed pages) never passes. */
 function originAllowed(origin: string | null, isAllowed: (hostname: string) => boolean): boolean {
   if (origin === null || origin === "") return true;
   if (origin === "null") return false;
@@ -50,6 +50,10 @@ function evaluateLocal(input: AccessInput): AccessDecision {
   if (!hostname || !LOOPBACK_HOSTS.has(hostname)) return { allow: false, reason: "Host is not this machine." };
   if (!originAllowed(input.origin, (h) => LOOPBACK_HOSTS.has(h))) {
     return { allow: false, reason: "Request came from another site." };
+  }
+  // A page served by another local app (same machine, different port or loopback name) is still another site.
+  if (input.origin && new URL(input.origin).host.toLowerCase() !== (input.host ?? "").toLowerCase()) {
+    return { allow: false, reason: "Request came from another local app." };
   }
   return { allow: true, via: "local" };
 }

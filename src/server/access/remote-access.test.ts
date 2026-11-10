@@ -3,7 +3,7 @@ import { resetDbForTests } from "@/server/db/client";
 import { recordAudit } from "@/server/security/audit";
 import { getSetting } from "@/server/settings/store";
 import { listRemoteAudit } from "./audit";
-import { createRemoteAccess } from "./remote-access";
+import { createRemoteAccess, ExposedServerError } from "./remote-access";
 
 const statusJson = JSON.stringify({
   BackendState: "Running",
@@ -11,7 +11,7 @@ const statusJson = JSON.stringify({
   User: { "7": { LoginName: "me@example.com" } },
 });
 
-function deps(overrides: { serveOk?: boolean; serveOutput?: string } = {}) {
+function deps(overrides: { serveOk?: boolean; serveOutput?: string; exposed?: boolean } = {}) {
   const calls: string[][] = [];
   return {
     calls,
@@ -21,7 +21,7 @@ function deps(overrides: { serveOk?: boolean; serveOutput?: string } = {}) {
         if (args[0] === "status") return { ok: true, output: statusJson };
         return { ok: overrides.serveOk ?? true, output: overrides.serveOutput ?? "https://pc.tail1234.ts.net/\n" };
       },
-      checkLanExposure: async () => ({ exposed: false, address: "192.168.0.5" }),
+      checkLanExposure: async () => ({ exposed: overrides.exposed ?? false, address: "192.168.0.5" }),
     },
   };
 }
@@ -42,15 +42,27 @@ describe("remote access", () => {
 
   it("update stores the switch and the allowed logins", async () => {
     const { deps: d } = deps();
-    createRemoteAccess(d).update({ enabled: true, allowedLogins: ["Me@Example.com"] });
+    await createRemoteAccess(d).update({ enabled: true, allowedLogins: ["Me@Example.com"] }, 3000);
     expect(getSetting("remote.enabled")).toBe(true);
     expect(getSetting("remote.allowedLogins")).toEqual(["me@example.com"]);
   });
 
   it("update rejects an invalid value and stores nothing", async () => {
     const { deps: d } = deps();
-    expect(() => createRemoteAccess(d).update({ enabled: "yes" as never })).toThrow();
+    await expect(createRemoteAccess(d).update({ enabled: "yes" as never }, 3000)).rejects.toThrow();
     expect(getSetting("remote.enabled")).toBe(false);
+  });
+
+  it("refuses to switch remote access on while the server is reachable on the network", async () => {
+    const { deps: d } = deps({ exposed: true });
+    await expect(createRemoteAccess(d).update({ enabled: true }, 3000)).rejects.toBeInstanceOf(ExposedServerError);
+    expect(getSetting("remote.enabled")).toBe(false);
+  });
+
+  it("still allows switching remote access off, and editing logins, while exposed", async () => {
+    const { deps: d } = deps({ exposed: true });
+    await createRemoteAccess(d).update({ enabled: false, allowedLogins: ["me@example.com"] }, 3000);
+    expect(getSetting("remote.allowedLogins")).toEqual(["me@example.com"]);
   });
 
   it("enabling phone access serves the port, stores the tailnet host and the owner's login", async () => {
@@ -63,10 +75,16 @@ describe("remote access", () => {
     expect(getSetting("remote.enabled")).toBe(false);
   });
 
+  it("refuses to publish the server to the tailnet while it is reachable on the network", async () => {
+    const { deps: d, calls } = deps({ exposed: true });
+    await expect(createRemoteAccess(d).serve("enable", 3000)).rejects.toBeInstanceOf(ExposedServerError);
+    expect(calls).toEqual([]);
+  });
+
   it("enabling keeps logins the owner already chose", async () => {
     const { deps: d } = deps();
     const access = createRemoteAccess(d);
-    access.update({ allowedLogins: ["other@example.com"] });
+    await access.update({ allowedLogins: ["other@example.com"] }, 3000);
     await access.serve("enable", 3000);
     expect(getSetting("remote.allowedLogins")).toEqual(["other@example.com"]);
   });
@@ -78,11 +96,10 @@ describe("remote access", () => {
     expect(getSetting("remote.tailnetHost")).toBe("");
   });
 
-  it("disabling resets serve and leaves the remote switch alone", async () => {
-    const { deps: d, calls } = deps();
-    const access = createRemoteAccess(d);
-    access.update({ enabled: true });
-    await access.serve("disable", 3000);
+  it("disabling resets serve and leaves the remote switch alone, even while exposed", async () => {
+    await createRemoteAccess(deps().deps).update({ enabled: true }, 3000);
+    const { deps: d, calls } = deps({ exposed: true });
+    await createRemoteAccess(d).serve("disable", 3000);
     expect(calls).toContainEqual(["serve", "reset"]);
     expect(getSetting("remote.enabled")).toBe(true);
   });

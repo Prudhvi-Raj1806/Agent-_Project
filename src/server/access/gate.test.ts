@@ -71,6 +71,21 @@ describe("evaluateAccess: the owner's phone over Tailscale", () => {
   });
 });
 
+describe("evaluateAccess: another local app on a different port", () => {
+  it("denies a loopback Origin whose port differs from the Host", () => {
+    expect(denied({ ...local, host: "localhost:3000", origin: "http://localhost:5173" })).toBe(true);
+  });
+
+  it("denies a different loopback name than the one the page was loaded from", () => {
+    expect(denied({ ...local, host: "localhost:3000", origin: "http://127.0.0.1:3000" })).toBe(true);
+  });
+
+  it("allows an Origin identical to the Host", () => {
+    expect(evaluateAccess({ ...local, host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000" }).allow).toBe(true);
+    expect(evaluateAccess({ ...local, host: "localhost:3000", origin: "http://localhost:3000" }).allow).toBe(true);
+  });
+});
+
 describe("evaluateAccess: forged requests", () => {
   it("never treats Host: localhost plus a Tailscale header as local", () => {
     expect(denied({ ...remote, host: "localhost:3000", remoteEnabled: false })).toBe(true);

@@ -26,6 +26,8 @@ function open(dbPath: string): DatabaseSync {
     database.exec("PRAGMA journal_mode = WAL;");
   }
   database.exec("PRAGMA foreign_keys = ON;");
+  // The proxy and the route handlers hold separate connections to this file; wait for a lock instead of failing the request.
+  database.exec("PRAGMA busy_timeout = 5000;");
   database.exec(SCHEMA_SQL);
   applyMigrations(database);
   return database;

@@ -4,13 +4,16 @@ import { evaluateAccess } from "@/server/access/gate";
 import { recordAudit } from "@/server/security/audit";
 import { getAllSettings, type SettingsShape } from "@/server/settings/store";
 
-const SETTINGS_TTL_MS = 2_000;
-let cached: { at: number; settings: SettingsShape } | null = null;
+/** Used when the settings can't be read (for example a locked database): remote stays off, the owner at the PC still gets in. */
+const FAIL_CLOSED: SettingsShape = { "remote.enabled": false, "remote.allowedLogins": [], "remote.tailnetHost": "" };
 
+/** Read fresh on every request so turning remote access off, or removing a login, takes effect immediately. */
 function currentSettings(): SettingsShape {
-  const now = Date.now();
-  if (!cached || now - cached.at > SETTINGS_TTL_MS) cached = { at: now, settings: getAllSettings() };
-  return cached.settings;
+  try {
+    return getAllSettings();
+  } catch {
+    return FAIL_CLOSED;
+  }
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);

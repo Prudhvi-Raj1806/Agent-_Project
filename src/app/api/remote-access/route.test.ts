@@ -8,7 +8,7 @@ import { POST } from "./serve/route";
 const stamped = { "x-access-via": "local" };
 const url = "http://localhost:3000/api/remote-access";
 
-function install() {
+function install(exposed = false) {
   const calls: string[][] = [];
   setRemoteAccessForTests(
     createRemoteAccess({
@@ -16,7 +16,7 @@ function install() {
         calls.push(args);
         return { ok: true, output: args[0] === "status" ? JSON.stringify({ BackendState: "Running", Self: { DNSName: "pc.t.ts.net.", UserID: 1 }, User: { "1": { LoginName: "me@x.com" } } }) : "https://pc.t.ts.net/" };
       },
-      checkLanExposure: async () => ({ exposed: false, address: null }),
+      checkLanExposure: async () => ({ exposed, address: exposed ? "192.168.0.5" : null }),
     }),
   );
   return calls;
@@ -81,5 +81,33 @@ describe("/api/remote-access", () => {
     const res = await post({ action: "enable" });
     expect(res.status).toBe(200);
     expect((await res.json()).url).toBe("https://pc.t.ts.net/");
+  });
+});
+
+describe("/api/remote-access write protection", () => {
+  beforeEach(() => resetDbForTests(":memory:"));
+  afterEach(() => resetRemoteAccessForTests());
+
+  it("a phone can read the state but cannot change it or publish the server", async () => {
+    install();
+    const phone = { "x-access-via": "tailscale" };
+    expect((await GET(new Request(url, { headers: phone }))).status).toBe(200);
+    expect((await put({ enabled: true }, phone)).status).toBe(403);
+    expect((await post({ action: "enable" }, phone)).status).toBe(403);
+  });
+
+  it("PUT enabling remote access while the server is exposed is 409 and stores nothing", async () => {
+    install(true);
+    const res = await put({ enabled: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/npm run dev|127\.0\.0\.1/);
+    const after = await GET(new Request(url, { headers: stamped }));
+    expect((await after.json()).enabled).toBe(false);
+  });
+
+  it("POST serve enable while the server is exposed is 409 and runs nothing", async () => {
+    const calls = install(true);
+    expect((await post({ action: "enable" })).status).toBe(409);
+    expect(calls).toEqual([]);
   });
 });

@@ -20,6 +20,16 @@ export interface RemoteAccessState {
 
 export type ServeAction = "enable" | "disable";
 
+/** Thrown when phone access would be turned on while this server is reachable on a network address. */
+export class ExposedServerError extends Error {
+  constructor(address: string | null) {
+    super(
+      `This server is reachable on your network${address ? ` at ${address}` : ""}, so phone access would not be safe. ` +
+        "Restart it with npm run dev or npm start from a normal terminal (both bind to 127.0.0.1), then try again.",
+    );
+  }
+}
+
 async function readStatus(deps: RemoteAccessDeps) {
   const result = await deps.runTailscale(["status", "--json"]);
   let parsed = parseTailscaleStatus(null);
@@ -31,6 +41,11 @@ async function readStatus(deps: RemoteAccessDeps) {
     }
   }
   return { installed: result.installed ?? result.ok, ...parsed };
+}
+
+async function refuseWhenExposed(deps: RemoteAccessDeps, port: number): Promise<void> {
+  const exposure = await deps.checkLanExposure(port);
+  if (exposure.exposed) throw new ExposedServerError(exposure.address);
 }
 
 /** Everything the Remote access panel shows and does. Tailscale and the network probe are injected so it can be tested. */
@@ -50,8 +65,9 @@ export function createRemoteAccess(deps: RemoteAccessDeps) {
       };
     },
 
-    /** Throws if a value is invalid; nothing is stored in that case. */
-    update(patch: { enabled?: boolean; allowedLogins?: string[] }): void {
+    /** Throws if a value is invalid, or if switching on while the server is network-exposed; nothing is stored then. */
+    async update(patch: { enabled?: boolean; allowedLogins?: string[] }, port: number): Promise<void> {
+      if (patch.enabled === true) await refuseWhenExposed(deps, port);
       setSettings({
         ...(patch.enabled !== undefined ? { "remote.enabled": patch.enabled } : {}),
         ...(patch.allowedLogins !== undefined ? { "remote.allowedLogins": patch.allowedLogins } : {}),
@@ -66,6 +82,7 @@ export function createRemoteAccess(deps: RemoteAccessDeps) {
         return { ok: reset.ok, output: reset.output, url: null };
       }
 
+      await refuseWhenExposed(deps, port);
       const served = await deps.runTailscale(buildServeArgs(port));
       if (!served.ok) return { ok: false, output: served.output, url: null };
 
