@@ -1,3 +1,4 @@
+import { BottomNav } from "@/components/shell/bottom-nav";
 import { Sidebar } from "@/components/shell/sidebar";
 import { TopBar } from "@/components/shell/top-bar";
 import { SpotifyPlayerProvider } from "@/lib/spotify/player-context";
@@ -10,12 +11,13 @@ export function AppShell({ children, settings }: { children: React.ReactNode; se
     <AppSettingsProvider initial={settings}>
       <SpotifyPlayerProvider>
         <ClapDetectorProvider>
-          <div className="flex h-dvh min-h-0 w-full bg-background text-foreground">
+          <div className="flex h-dvh min-h-0 w-full flex-col bg-background text-foreground md:flex-row">
             <Sidebar />
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <TopBar />
               <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
             </div>
+            <BottomNav />
           </div>
         </ClapDetectorProvider>
       </SpotifyPlayerProvider>

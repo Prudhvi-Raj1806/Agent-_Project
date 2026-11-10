@@ -52,7 +52,7 @@ export function TopBar() {
   }, []);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-5 border-b border-border px-6">
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-3 sm:gap-5 sm:px-6">
       <CommandBar className="max-w-lg flex-1" />
       <div className="hidden shrink-0 flex-col items-end leading-tight sm:flex">
         <span className="text-xs text-muted-foreground">
@@ -62,7 +62,9 @@ export function TopBar() {
           {now ? formatClock(now) : " "}
         </span>
       </div>
-      <WeatherChip weather={weather} />
+      <div className="hidden sm:block">
+        <WeatherChip weather={weather} />
+      </div>
       <ClapWakeIndicator />
       <NotificationBell />
     </header>

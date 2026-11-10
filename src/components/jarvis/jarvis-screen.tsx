@@ -301,7 +301,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
     voice.caption || (working ? "Working on it…" : "Type a request, dictate it with Handy, or tap Brief.");
 
   return (
-    <div className="relative grid h-full min-h-0 grid-cols-1 gap-4 overflow-hidden px-6 py-5 lg:grid-cols-[minmax(240px,290px)_minmax(0,1fr)_minmax(240px,290px)]">
+    <div className="relative grid h-full min-h-0 grid-cols-1 gap-4 overflow-hidden px-3 py-3 sm:px-6 sm:py-5 lg:grid-cols-[minmax(240px,290px)_minmax(0,1fr)_minmax(240px,290px)]">
       {/* Left rail */}
       <div className="hidden min-h-0 flex-col gap-4 overflow-hidden lg:flex">
         <HudClock />
@@ -395,7 +395,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
                   : "Open Handy to dictate"
               }
               className={cn(
-                "flex size-7 shrink-0 items-center justify-center transition-colors disabled:opacity-40",
+                "flex size-7 max-md:size-11 shrink-0 items-center justify-center transition-colors disabled:opacity-40",
                 dictating ? "animate-pulse text-accent-cyan" : "text-muted-foreground hover:text-accent-cyan",
               )}
             >
@@ -416,7 +416,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
                 type="button"
                 onClick={stopAll}
                 aria-label="Stop"
-                className="flex size-7 items-center justify-center text-status-warning transition-colors hover:bg-surface-3"
+                className="flex size-7 max-md:size-11 items-center justify-center text-status-warning transition-colors hover:bg-surface-3"
               >
                 <Square className="size-3.5 fill-current" />
               </button>
@@ -425,7 +425,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
                 type="submit"
                 disabled={!draft.trim()}
                 aria-label={`Send to ${BRAND}`}
-                className="flex size-7 items-center justify-center text-accent-cyan transition-colors hover:bg-surface-3 disabled:text-text-dim disabled:hover:bg-transparent"
+                className="flex size-7 max-md:size-11 items-center justify-center text-accent-cyan transition-colors hover:bg-surface-3 disabled:text-text-dim disabled:hover:bg-transparent"
               >
                 <SendHorizontal className="size-4" />
               </button>
@@ -441,7 +441,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               ok={voiceStatus?.speech === "voicestudio" || voiceStatus?.speech === "elevenlabs"}
             />
             <StatusChip label="Handy" value={handyChip.value} ok={handyChip.ok} />
-            <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-text-dim">
+            <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-text-dim max-md:min-h-11">
               <input
                 type="checkbox"
                 checked={autoSend}

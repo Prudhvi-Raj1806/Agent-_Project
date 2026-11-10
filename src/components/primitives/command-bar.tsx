@@ -110,7 +110,7 @@ export function CommandBar({
         <button
           type="button"
           aria-label="Ask with voice"
-          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
+          className="flex size-6 max-md:size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
         >
           <Mic className="size-4" />
         </button>

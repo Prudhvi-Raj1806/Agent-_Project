@@ -17,14 +17,14 @@ import { cn } from "@/lib/utils";
 import { PresenceRing } from "@/components/primitives/presence-ring";
 import { BRAND } from "@/lib/brand";
 
-const primaryNav = [
+export const primaryNav = [
   { href: "/", label: "Home", icon: House },
   { href: "/jarvis", label: BRAND, icon: Orbit },
   { href: "/work", label: "Work", icon: Layers },
   { href: "/focus", label: "Focus", icon: Focus },
 ];
 
-const secondaryNav = [
+export const secondaryNav = [
   { href: "/ima", label: "IMA", icon: Radio },
   { href: "/music", label: "Music", icon: Music2 },
   { href: "/system", label: "System", icon: Cpu },
@@ -43,7 +43,7 @@ export function Sidebar() {
     );
 
   return (
-    <aside className="flex h-full w-44 shrink-0 flex-col border-r border-border bg-background">
+    <aside className="hidden h-full w-44 shrink-0 flex-col border-r border-border bg-background md:flex">
       <div className="flex h-14 items-center gap-2.5 px-4">
         <PresenceRing size="sm" active />
         <span className="text-sm font-semibold tracking-wide text-foreground">

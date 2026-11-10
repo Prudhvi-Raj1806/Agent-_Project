@@ -160,3 +160,28 @@
     @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-cyan/70;
   }
 }
+
+/* Phone touch targets (at least 44px). Buttons and dropdowns simply grow;
+   switches and text links keep their look but get a larger invisible tap
+   area, so no layout shifts. Inside the base layer so any utility class that
+   sets its own size still wins. */
+@layer base {
+  @media (max-width: 767px) {
+    button:not([role="switch"]),
+    select {
+      min-height: 2.75rem;
+    }
+
+    [role="switch"],
+    main a {
+      position: relative;
+    }
+
+    [role="switch"]::after,
+    main a::after {
+      content: "";
+      position: absolute;
+      inset: -0.75rem -0.5rem;
+    }
+  }
+}

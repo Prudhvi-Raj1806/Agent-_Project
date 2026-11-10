@@ -61,7 +61,7 @@ export default function SettingsPage() {
   const voiceSource = getVoicePasscodeSource();
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col gap-4 overflow-y-auto px-8 py-4">
+    <div className="mx-auto flex h-full max-w-3xl flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-8">
       <div className="shrink-0 pt-1 pb-1">
         <p className="text-xs font-medium tracking-wide text-text-dim uppercase">Settings</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Configure {BRAND}.</h1>
