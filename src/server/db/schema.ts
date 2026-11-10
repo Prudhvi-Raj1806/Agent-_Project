@@ -174,6 +174,14 @@ CREATE TABLE IF NOT EXISTS voice_config (
   updated_at TEXT NOT NULL
 );
 
+-- Dashboard settings: one row per key, JSON-encoded value. Validated and
+-- defaulted by src/server/settings/schema.ts; absent keys use their default.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,
   actor_id TEXT NOT NULL,
