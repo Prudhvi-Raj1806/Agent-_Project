@@ -1,7 +1,8 @@
-import { Bot, Cpu, Ear, Moon, Plug, User } from "lucide-react";
+import { Bot, Cpu, Ear, Moon, Plug, Server, User } from "lucide-react";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { ClapWakePanel } from "@/components/settings/clap-wake-panel";
 import { HermesPanel } from "@/components/settings/hermes-panel";
+import { ServicesPanel } from "@/components/settings/services-panel";
 import { SpotifyConnectionRow } from "@/components/settings/spotify-connection-row";
 import { VoicePasscodePanel } from "@/components/settings/voice-passcode-panel";
 import { isSpotifyConnected } from "@/server/spotify/auth";
@@ -99,6 +100,14 @@ export default function SettingsPage() {
           subtitle="An always-listening clap trigger, inspired by another Jarvis project."
         >
           <ClapWakePanel />
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<Server className="size-4 text-muted-foreground" />}
+          title="Services"
+          subtitle="Start, stop and restart what the assistant depends on."
+        >
+          <ServicesPanel />
         </SettingsSection>
 
         <SettingsSection
