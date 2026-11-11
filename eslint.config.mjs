@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Kokoro speech server's Python virtual environment ships third-party JS (torch).
+    "services/kokoro/.venv/**",
   ]),
 ]);
 
