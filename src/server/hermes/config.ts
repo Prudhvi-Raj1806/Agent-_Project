@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { replaceWithBackup } from "./safe-write";
 
 /**
  * Reads and edits the one part of Hermes's own `config.yaml` the dashboard
@@ -154,11 +155,9 @@ export async function loadHermesConfigText(): Promise<string> {
 /** Backs the current file up beside itself, then replaces it in one step so a crash can't leave half a config. */
 export async function saveHermesConfigText(text: string): Promise<{ backupPath: string }> {
   const file = hermesConfigPath();
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = `${file}.bak-dashboard-${stamp}`;
-  await fs.copyFile(file, backupPath);
-  const tmp = `${file}.tmp-${process.pid}`;
-  await fs.writeFile(tmp, text, "utf-8");
-  await fs.rename(tmp, file);
+  // A config is only ever replaced, never created: a missing one means Hermes isn't set up.
+  await fs.access(file);
+  const { backupPath } = await replaceWithBackup(file, text);
+  if (!backupPath) throw new Error("Hermes's config was removed while it was being saved.");
   return { backupPath };
 }
