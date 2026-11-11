@@ -19,6 +19,11 @@ export type BrainEvent =
   | "brain.skill.completed"
   | "brain.skill.failed"
   | "brain.handoff"
+  | "brain.handoff.failed"
+  | "brain.timeout"
+  | "brain.unclear"
+  | "brain.chat.completed"
+  | "brain.chat.discarded"
   | "brain.unavailable";
 
 /** Everything the brain touches, injected so the whole flow is testable without a model, Hermes or a database. */
@@ -58,6 +63,14 @@ export function resetBrainStateForTests(): void {
   starting = null;
 }
 
+/** The most of a request that is ever written to the log. */
+const logged = (text: string) => text.slice(0, LOGGED_TEXT_LENGTH);
+
+/** Every failure leaves a record: a silent timeout or "unclear" answer is otherwise impossible to tell from a request that never arrived. */
+function recordUnclear(deps: BrainDeps, reason: string, text: string): void {
+  deps.emit("brain.unclear", { reason, text: logged(text) });
+}
+
 /** One start attempt at a time, however many requests are waiting on it. */
 function startOnce(deps: BrainDeps): Promise<boolean> {
   starting ??= deps.startModelServer().finally(() => {
@@ -68,8 +81,14 @@ function startOnce(deps: BrainDeps): Promise<boolean> {
 
 async function handOff(objective: string, text: string, deps: BrainDeps, notice?: string): Promise<BrainResponse> {
   const result = await deps.handoff(objective);
-  if ("hermesDown" in result) return { kind: "reply", choice: CHOICE_HERMES, ok: false, text: HERMES_DOWN_LINE };
-  if ("refused" in result) return { kind: "reply", choice: CHOICE_HERMES, ok: false, text: result.refused };
+  if ("hermesDown" in result) {
+    deps.emit("brain.handoff.failed", { reason: "Hermes is not running", text: logged(objective) });
+    return { kind: "reply", choice: CHOICE_HERMES, ok: false, text: HERMES_DOWN_LINE };
+  }
+  if ("refused" in result) {
+    deps.emit("brain.handoff.failed", { reason: result.refused, text: logged(objective) });
+    return { kind: "reply", choice: CHOICE_HERMES, ok: false, text: result.refused };
+  }
   deps.emit("brain.handoff", { missionId: result.missionId });
   return { kind: "handoff", text, missionId: result.missionId, ...(notice ? { notice } : {}) };
 }
@@ -77,18 +96,23 @@ async function handOff(objective: string, text: string, deps: BrainDeps, notice?
 /** Routes one request and acts on the pick. Throws ModelUnavailableError when the model can't be reached. */
 async function decide(text: string, history: ChatMessage[], model: string, deps: BrainDeps): Promise<BrainResponse> {
   const started = deps.now();
-  const choice = await routeRequest(text, { client: deps.client, model, skills: deps.skills });
-  deps.emit("brain.routed", {
-    choice,
-    ms: Math.round(deps.now() - started),
-    text: text.slice(0, LOGGED_TEXT_LENGTH),
+  const choice = await routeRequest(text, {
+    client: deps.client,
+    model,
+    skills: deps.skills,
+    onCheckTimeout: () =>
+      deps.emit("brain.timeout", { stage: "check", ms: Math.round(deps.now() - started), text: logged(text) }),
   });
+  deps.emit("brain.routed", { choice, ms: Math.round(deps.now() - started), text: logged(text) });
   const done = <T extends BrainResponse>(response: T): T => {
     lastMs = Math.round(deps.now() - started);
     return response;
   };
 
-  if (choice === CHOICE_UNCLEAR) return done({ kind: "unclear", text: UNCLEAR_LINE });
+  if (choice === CHOICE_UNCLEAR) {
+    recordUnclear(deps, "router", text);
+    return done({ kind: "unclear", text: UNCLEAR_LINE });
+  }
   if (choice === CHOICE_HERMES) return done(await handOff(text, HANDOFF_LINE, deps));
 
   if (choice === CHOICE_CHAT) {
@@ -97,12 +121,22 @@ async function decide(text: string, history: ChatMessage[], model: string, deps:
       const persona = await deps.persona();
       reply = await writeChatReply({ client: deps.client, model, persona: persona.text, text, history });
     } catch (err) {
-      if (err instanceof ModelTimeoutError) return done({ kind: "reply", choice, ok: false, text: TOO_SLOW_LINE });
+      if (err instanceof ModelTimeoutError) {
+        deps.emit("brain.timeout", { stage: "chat", ms: Math.round(deps.now() - started), text: logged(text) });
+        return done({ kind: "reply", choice, ok: false, text: TOO_SLOW_LINE });
+      }
       throw err;
     }
     // Chat has no tools, so "I've sent it" is never true. Hand the request over instead of saying it.
-    if (claimsAnAction(reply)) return done(await handOff(text, HANDOFF_LINE, deps));
-    if (reply === "") return done({ kind: "unclear", text: UNCLEAR_LINE });
+    if (claimsAnAction(reply)) {
+      deps.emit("brain.chat.discarded", { reason: "claimed an action", text: logged(text) });
+      return done(await handOff(text, HANDOFF_LINE, deps));
+    }
+    if (reply === "") {
+      recordUnclear(deps, "empty reply", text);
+      return done({ kind: "unclear", text: UNCLEAR_LINE });
+    }
+    deps.emit("brain.chat.completed", { ms: Math.round(deps.now() - started) });
     return done({ kind: "reply", choice, ok: true, text: reply });
   }
 
@@ -112,6 +146,11 @@ async function decide(text: string, history: ChatMessage[], model: string, deps:
   const result = await skill.run();
   deps.emit(result.ok ? "brain.skill.completed" : "brain.skill.failed", { choice });
   return done({ kind: "reply", choice, ok: result.ok, text: result.reply });
+}
+
+function slowRouting(deps: BrainDeps, text: string, started: number): BrainResponse {
+  deps.emit("brain.timeout", { stage: "routing", ms: Math.round(deps.now() - started), text: logged(text) });
+  return { kind: "unclear", text: TOO_SLOW_LINE };
 }
 
 /**
@@ -132,14 +171,20 @@ export async function handleRequest(
   const prefixed = HERMES_PREFIX.exec(text);
   if (prefixed) {
     const objective = prefixed[1].trim();
-    return objective === "" ? { kind: "unclear", text: UNCLEAR_LINE } : handOff(objective, HANDOFF_LINE, deps);
+    if (objective === "") {
+      recordUnclear(deps, "nothing after the Hermes prefix", text);
+      return { kind: "unclear", text: UNCLEAR_LINE };
+    }
+    return handOff(objective, HANDOFF_LINE, deps);
   }
+
+  const started = deps.now();
 
   try {
     return await decide(text, input.history, model, deps);
   } catch (err) {
     // Routing itself was too slow (a busy machine, or the model still loading): say so, don't claim a misheard request.
-    if (err instanceof ModelTimeoutError) return { kind: "unclear", text: TOO_SLOW_LINE };
+    if (err instanceof ModelTimeoutError) return slowRouting(deps, text, started);
     if (!(err instanceof ModelUnavailableError)) throw err;
   }
 
@@ -147,7 +192,7 @@ export async function handleRequest(
     try {
       return await decide(text, input.history, model, deps);
     } catch (err) {
-      if (err instanceof ModelTimeoutError) return { kind: "unclear", text: TOO_SLOW_LINE };
+      if (err instanceof ModelTimeoutError) return slowRouting(deps, text, started);
       // Still unreachable after a start: most likely the chosen model isn't installed.
       if (!(err instanceof ModelUnavailableError)) throw err;
     }

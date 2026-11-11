@@ -39,6 +39,11 @@ export type EventType =
   | "brain.skill.completed"
   | "brain.skill.failed"
   | "brain.handoff"
+  | "brain.handoff.failed"
+  | "brain.timeout"
+  | "brain.unclear"
+  | "brain.chat.completed"
+  | "brain.chat.discarded"
   | "brain.unavailable";
 
 /**

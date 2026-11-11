@@ -295,6 +295,114 @@ describe("when the mini brain is off or unavailable", () => {
   });
 });
 
+describe("failures leave a record in the event log", () => {
+  const types = (events: { type: string }[]) => events.map((e) => e.type);
+
+  it("records a routing timeout, with the stage, how long it waited and the request", async () => {
+    const { client } = scriptedClient(new ModelTimeoutError("slow"));
+    const { deps, events } = makeDeps(client);
+
+    await ask("what time is it", deps);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("brain.timeout");
+    expect(events[0].metadata).toMatchObject({ stage: "routing", text: "what time is it" });
+    expect(typeof events[0].metadata.ms).toBe("number");
+  });
+
+  it("records a chat timeout", async () => {
+    const { client } = scriptedClient(pick("chat"), TALK, new ModelTimeoutError("slow"));
+    const { deps, events } = makeDeps(client);
+
+    await ask("tell me a story", deps);
+
+    expect(types(events)).toEqual(["brain.routed", "brain.timeout"]);
+    expect(events[1].metadata).toMatchObject({ stage: "chat" });
+  });
+
+  it("records the talk-or-act check timing out, which hands the request to Hermes", async () => {
+    const { client } = scriptedClient(pick("chat"), new ModelTimeoutError("slow"));
+    const { deps, events } = makeDeps(client);
+
+    await ask("hmm, something unusual", deps);
+
+    expect(types(events)).toContain("brain.timeout");
+    expect(events.find((e) => e.type === "brain.timeout")!.metadata).toMatchObject({ stage: "check" });
+    expect(types(events)).toContain("brain.handoff");
+  });
+
+  it("records a completed chat reply with how long the whole request took", async () => {
+    const { client } = scriptedClient(pick("chat"), TALK, "Paris.");
+    const { deps, events } = makeDeps(client);
+
+    await ask("capital of France?", deps);
+
+    expect(types(events)).toEqual(["brain.routed", "brain.chat.completed"]);
+    expect(typeof events[1].metadata.ms).toBe("number");
+  });
+
+  it("records a chat reply that was thrown away for claiming an action", async () => {
+    const { client } = scriptedClient(pick("chat"), TALK, "I've sent it.");
+    const { deps, events } = makeDeps(client);
+
+    await ask("get a note to my brother", deps);
+
+    expect(types(events)).toEqual(["brain.routed", "brain.chat.discarded", "brain.handoff"]);
+    expect(events[1].metadata).toMatchObject({ reason: "claimed an action" });
+  });
+
+  it.each([
+    ["the router picks unclear", [pick("unclear")], "the uh", "router"],
+    ["the chat reply is empty", [pick("chat"), TALK, "  "], "hmm", "empty reply"],
+  ])("records an unclear answer when %s", async (_label, script, text, reason) => {
+    const { client } = scriptedClient(...(script as string[]));
+    const { deps, events } = makeDeps(client);
+
+    await ask(text as string, deps);
+
+    expect(events.at(-1)!.type).toBe("brain.unclear");
+    expect(events.at(-1)!.metadata).toMatchObject({ reason });
+  });
+
+  it("records a bare 'Hermes,' as unclear", async () => {
+    const { client } = scriptedClient();
+    const { deps, events } = makeDeps(client);
+
+    await ask("Hermes,", deps);
+
+    expect(events).toEqual([{ type: "brain.unclear", metadata: { reason: "nothing after the Hermes prefix", text: "Hermes," } }]);
+  });
+
+  it("records a hand-off that could not start because Hermes is down", async () => {
+    const { client } = scriptedClient(pick("hermes"));
+    const { deps, events } = makeDeps(client, { handoff: async () => ({ hermesDown: true }) });
+
+    await ask("research laptops", deps);
+
+    expect(types(events)).toEqual(["brain.routed", "brain.handoff.failed"]);
+    expect(events[1].metadata).toMatchObject({ reason: "Hermes is not running" });
+  });
+
+  it("records a hand-off the mission policy refused, with the reason", async () => {
+    const { client } = scriptedClient(pick("hermes"));
+    const { deps, events } = makeDeps(client, { handoff: async () => ({ refused: "That objective is not allowed." }) });
+
+    await ask("do the forbidden thing", deps);
+
+    expect(events.at(-1)!.type).toBe("brain.handoff.failed");
+    expect(events.at(-1)!.metadata).toMatchObject({ reason: "That objective is not allowed." });
+  });
+
+  it("never puts more than the first 200 characters of a request in any record", async () => {
+    const { client } = scriptedClient(new ModelTimeoutError("slow"));
+    const { deps, events } = makeDeps(client);
+
+    await ask("x".repeat(500), deps);
+
+    expect(String(events[0].metadata.text)).toHaveLength(200);
+  });
+});
+
 describe("lastAnswerMs", () => {
   it("is null until the model has answered, then how long the last answer took", async () => {
     expect(lastAnswerMs()).toBeNull();

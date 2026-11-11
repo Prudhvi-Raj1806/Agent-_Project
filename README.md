@@ -91,6 +91,8 @@ A small local model hears every typed or spoken request first. It answers small 
 - **Settings → Mini brain:** switch it off, pick another installed model, see whether the model is loaded, and run a quick test.
 - **Speed:** keep Hermes on a different model. While Hermes is generating on the same local model, the mini brain has to wait its turn.
 
+Every outcome is written to the event log (`brain.routed`, `brain.skill.completed`, `brain.chat.completed`), and so is every failure: `brain.timeout` (with the stage that was too slow: routing, check or chat), `brain.unclear`, `brain.chat.discarded` and `brain.handoff.failed`. A request that leaves no record never reached the server.
+
 Routing is checked against the real model on demand, because it needs Ollama:
 
 ```bash

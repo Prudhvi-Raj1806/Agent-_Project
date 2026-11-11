@@ -56,7 +56,12 @@ export function startsByAskingForAction(text: string): boolean {
  * right against 92% and 1.7 s median against 1.0 s, with nearly every chat
  * request answered "act". The check stays a separate, standalone question.
  */
-async function talkIsEnough(client: ModelClient, model: string, text: string): Promise<boolean> {
+async function talkIsEnough(
+  client: ModelClient,
+  model: string,
+  text: string,
+  onTimeout: (() => void) | undefined,
+): Promise<boolean> {
   let answer: string;
   try {
     answer = await client.chat({
@@ -70,7 +75,10 @@ async function talkIsEnough(client: ModelClient, model: string, text: string): P
       timeoutMs: CHECK_TIMEOUT_MS,
     });
   } catch (err) {
-    if (err instanceof ModelTimeoutError) return false;
+    if (err instanceof ModelTimeoutError) {
+      onTimeout?.();
+      return false;
+    }
     throw err;
   }
   try {
@@ -88,7 +96,13 @@ async function talkIsEnough(client: ModelClient, model: string, text: string): P
  */
 export async function routeRequest(
   text: string,
-  deps: { client: ModelClient; model: string; skills: BrainSkill[] },
+  deps: {
+    client: ModelClient;
+    model: string;
+    skills: BrainSkill[];
+    /** Called when the talk-or-act check times out, so the caller can record that the request was handed off for that reason. */
+    onCheckTimeout?: () => void;
+  },
 ): Promise<string> {
   const { client, model, skills } = deps;
   if (startsByAskingForAction(text)) return CHOICE_HERMES;
@@ -98,5 +112,5 @@ export async function routeRequest(
     schema: choiceIds(skills),
   });
   if (decision !== CHOICE_CHAT) return decision;
-  return (await talkIsEnough(client, model, text)) ? CHOICE_CHAT : CHOICE_HERMES;
+  return (await talkIsEnough(client, model, text, deps.onCheckTimeout)) ? CHOICE_CHAT : CHOICE_HERMES;
 }
