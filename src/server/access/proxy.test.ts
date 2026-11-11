@@ -102,6 +102,21 @@ describe("proxy matcher", () => {
     }
   });
 
+  it("never exempts an API route, whatever the last path segment ends with", () => {
+    // Routes such as /api/missions/:id/tool-approvals/:toolCallId end in a segment the caller chooses.
+    // An image-looking ending must not carry the request past the access gate.
+    for (const path of [
+      "/api/missions/m1/tool-approvals/call-1.png",
+      "/api/missions/x.png",
+      "/api/schedule/s1.svg",
+      "/api/tasks/t1.ico",
+      "/api/services/ollama/stop.webp",
+      "/api/anything.jpeg",
+    ]) {
+      expect(matches(path), path).toBe(true);
+    }
+  });
+
   it("never exempts a data route that merely contains an image word", () => {
     for (const path of ["/api/png", "/api/images/list", "/png/data", "/api/voice/speak.json"]) {
       expect(matches(path)).toBe(true);

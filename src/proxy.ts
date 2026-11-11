@@ -65,6 +65,8 @@ export function proxy(request: NextRequest) {
 export const config = {
   // Public image files skip the gate: Next's image optimizer fetches them with an internal
   // request that carries no headers (so the gate would answer 403 and every image would
-  // break in production). They are brand art, not data, and API routes never end in these.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico)$).*)"],
+  // break in production). They are brand art, not data. Nothing under /api is ever exempt:
+  // several routes end in a segment the caller chooses (/api/missions/:id/tool-approvals/:toolCallId),
+  // so an image-looking ending must not carry a request past the gate.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico)$).*)"],
 };
