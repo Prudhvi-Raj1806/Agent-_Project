@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pickFemaleVoice } from "./browser-voice";
 
 const v = (name: string, lang = "en-US") => ({ name, lang });
@@ -33,5 +33,27 @@ describe("pickFemaleVoice", () => {
 
   it("returns undefined for an empty list", () => {
     expect(pickFemaleVoice([])).toBeUndefined();
+  });
+});
+
+describe("loading the browser's voice list", () => {
+  it("asks for the voices as soon as the module loads, because browsers fill the list in late", async () => {
+    // Chrome returns an empty list from getVoices() until it has loaded them; asking early means
+    // the first spoken line already finds the female voice instead of the male system default.
+    const getVoices = vi.fn(() => []);
+    vi.stubGlobal("window", { speechSynthesis: { getVoices, addEventListener: vi.fn() } });
+    vi.resetModules();
+
+    await import("./browser-voice");
+
+    expect(getVoices).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("does nothing, and does not fail, where there is no speech synthesis", async () => {
+    vi.stubGlobal("window", {});
+    vi.resetModules();
+    await expect(import("./browser-voice")).resolves.toBeDefined();
+    vi.unstubAllGlobals();
   });
 });

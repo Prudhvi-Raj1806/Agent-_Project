@@ -22,6 +22,6 @@ export function emitEvent(input: EmitInput): JarvisEvent {
   return event;
 }
 
-export { listEventsForMission, listRecentEvents } from "./repository";
+export { listEventsForMission, listRecentEvents, listRecentEventsOfTypes } from "./repository";
 export { subscribe } from "./bus";
 export type { EventType, JarvisEvent } from "./types";

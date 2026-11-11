@@ -164,6 +164,18 @@ describe("hand-off to Hermes", () => {
     expect(seen).toHaveLength(0);
   });
 
+  it.each(["Hermes's model is slow, why?", "hermes-agent status", "Hermesian poetry", "Hermes’s config"])(
+    "%j is an ordinary request that merely starts with the word, not a hand-off prefix",
+    async (text) => {
+      const { client, seen } = scriptedClient(pick("chat"), TALK, "Because it is small.");
+      const { deps } = makeDeps(client);
+
+      expect(await ask(text, deps)).toMatchObject({ kind: "reply", choice: "chat" });
+      expect(deps.handoff).not.toHaveBeenCalled();
+      expect(seen).toHaveLength(3);
+    },
+  );
+
   it.each(["Hermes,", "hermes", "Hermes:  "])("%j alone is unclear and starts nothing", async (text) => {
     const { client } = scriptedClient();
     const { deps } = makeDeps(client);

@@ -43,7 +43,7 @@ const BRAIN_OFF_NOTICE = "The mini brain is off.";
 const LOGGED_TEXT_LENGTH = 200;
 
 /** "Hermes, …" at the start of a request skips the router and hands the rest over. */
-const HERMES_PREFIX = /^\s*hermes\b\s*[,:]?\s*([\s\S]*)$/i;
+const HERMES_PREFIX = /^\s*hermes(?=[\s,:]|$)\s*[,:]?\s*([\s\S]*)$/i;
 
 let lastMs: number | null = null;
 let starting: Promise<boolean> | null = null;

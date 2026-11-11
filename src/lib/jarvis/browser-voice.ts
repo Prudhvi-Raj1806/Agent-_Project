@@ -21,6 +21,20 @@ export function pickFemaleVoice<T extends VoiceLike>(voices: readonly T[], langu
   );
 }
 
+/**
+ * Browsers fill the voice list in late: the first getVoices() call can return
+ * an empty list, and the voices arrive a moment after. Asking as soon as this
+ * module loads (it is imported at the app root) means the first spoken line
+ * already finds the female voice instead of the system default, which is
+ * often male.
+ */
+if (typeof window !== "undefined" && window.speechSynthesis) {
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", () => {
+    window.speechSynthesis.getVoices();
+  });
+}
+
 /** Gives an utterance the preferred female voice, when the browser has one. */
 export function applyFemaleVoice(utterance: SpeechSynthesisUtterance): void {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;

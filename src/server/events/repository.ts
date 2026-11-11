@@ -52,6 +52,21 @@ export function listEventsForMission(missionId: string): JarvisEvent[] {
   return rows.map(rowToEvent);
 }
 
+/**
+ * The newest events of the given types. Filtered in the query, not after it: a
+ * caller that wants rare events (outcomes) must not lose them to a window
+ * filled by frequent ones (progress, routing decisions).
+ */
+export function listRecentEventsOfTypes(types: readonly string[], limit = 20): JarvisEvent[] {
+  if (types.length === 0) return [];
+  const db = getDb();
+  const marks = types.map(() => "?").join(", ");
+  const rows = db
+    .prepare(`SELECT * FROM events WHERE type IN (${marks}) ORDER BY timestamp DESC, rowid DESC LIMIT ?`)
+    .all(...types, limit) as unknown as EventRow[];
+  return rows.map(rowToEvent);
+}
+
 export function listRecentEvents(limit = 200): JarvisEvent[] {
   const db = getDb();
   const rows = db

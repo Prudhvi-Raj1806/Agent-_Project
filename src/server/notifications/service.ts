@@ -1,4 +1,4 @@
-import { listRecentEvents } from "@/server/events/service";
+import { listRecentEventsOfTypes } from "@/server/events/service";
 import type { JarvisEvent } from "@/server/events/types";
 import { getMission } from "@/server/missions/service";
 import { shortenObjective } from "@/lib/work/mission-mapping";
@@ -51,8 +51,5 @@ function describe(event: JarvisEvent): Notification {
 }
 
 export function listNotifications(limit = 20): Notification[] {
-  return listRecentEvents(200)
-    .filter((e) => NOTABLE_TYPES.has(e.type))
-    .slice(0, limit)
-    .map(describe);
+  return listRecentEventsOfTypes([...NOTABLE_TYPES], limit).map(describe);
 }
