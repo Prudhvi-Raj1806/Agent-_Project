@@ -23,6 +23,8 @@ describe("/api/app-settings", () => {
     const res = await get();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
+      "persona.name": "Veda",
+      "persona.ownerName": "Raj",
       "remote.enabled": false,
       "remote.allowedLogins": [],
       "remote.tailnetHost": "",
@@ -82,6 +84,17 @@ describe("/api/app-settings access", () => {
     expect((await put({ "remote.allowedLogins": ["x@y.com"] }, "tailscale")).status).toBe(403);
     expect((await put({ "remote.tailnetHost": "a.b.ts.net" }, "tailscale")).status).toBe(403);
     expect((await (await get()).json())["remote.enabled"]).toBe(false);
+  });
+
+  it("PUT with an unsafe name is 400 and stores nothing", async () => {
+    expect((await put({ "persona.name": "<script>" })).status).toBe(400);
+    expect((await (await get()).json())["persona.name"]).toBe("Veda");
+  });
+
+  it("a phone can change the names", async () => {
+    const res = await put({ "persona.name": "Nova", "persona.ownerName": "Prudhvi" }, "tailscale");
+    expect(res.status).toBe(200);
+    expect((await res.json())["persona.name"]).toBe("Nova");
   });
 
   it("the owner at the PC can change remote-access keys", async () => {

@@ -5,7 +5,11 @@
  * fall back to their default.
  */
 
+import { BRAND } from "@/lib/brand";
+
 export interface SettingsShape {
+  "persona.name": string;
+  "persona.ownerName": string;
   "remote.enabled": boolean;
   "remote.allowedLogins": string[];
   "remote.tailnetHost": string;
@@ -71,6 +75,23 @@ function parseOneOf<T extends string>(allowed: readonly T[]) {
   };
 }
 
+/** What the assistant or its owner is called: shown on screen, spoken aloud and sent to Spotify as a device name. */
+const PERSON_NAME = /^[\p{L}\p{N}][\p{L}\p{N} .'-]{0,23}$/u;
+const FALLBACK_OWNER = "Raj";
+
+function parsePersonName(value: unknown): string {
+  if (typeof value !== "string") throw new Error("Expected text.");
+  const name = value.trim();
+  if (!PERSON_NAME.test(name)) throw new Error("A name is 1 to 24 letters, digits, spaces or . ' - characters.");
+  return name;
+}
+
+/** `JARVIS_OWNER_NAME` from the environment when it is usable, else "Raj". */
+function envOwnerName(): string {
+  const configured = process.env.JARVIS_OWNER_NAME?.trim() ?? "";
+  return PERSON_NAME.test(configured) ? configured : FALLBACK_OWNER;
+}
+
 /** A Voice Studio profile id, profile name or preset. Letters, digits, spaces and . _ : - only. */
 const VOICE_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:-]{0,63}$/u;
 const FALLBACK_VOICE = "alloy";
@@ -105,6 +126,13 @@ function envVoice(): string {
 }
 
 export const SETTING_DEFS: { [K in SettingKey]: SettingDef<SettingsShape[K]> } = {
+  "persona.name": { default: BRAND, parse: parsePersonName },
+  "persona.ownerName": {
+    get default() {
+      return envOwnerName();
+    },
+    parse: parsePersonName,
+  },
   "remote.enabled": { default: false, parse: parseBoolean },
   "remote.allowedLogins": { default: [], parse: parseLogins },
   "remote.tailnetHost": { default: "", parse: parseTailnetHost },

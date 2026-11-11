@@ -9,6 +9,8 @@ describe("settings store", () => {
 
   it("returns defaults when nothing is stored", () => {
     expect(getAllSettings()).toEqual({
+      "persona.name": "Veda",
+      "persona.ownerName": "Raj",
       "remote.enabled": false,
       "remote.allowedLogins": [],
       "remote.tailnetHost": "",
@@ -58,6 +60,37 @@ describe("settings store", () => {
     expect(getSetting("remote.tailnetHost")).toBe("");
     expect(() => setSettings({ "remote.tailnetHost": "evil.com/x" })).toThrow();
     expect(() => setSettings({ "remote.tailnetHost": "a b" })).toThrow();
+  });
+
+  describe("persona names", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("accepts a name of letters, digits, spaces and . ' - and trims it", () => {
+      setSettings({ "persona.name": "  Nova-2  ", "persona.ownerName": "D'Arcy Jr." });
+      expect(getSetting("persona.name")).toBe("Nova-2");
+      expect(getSetting("persona.ownerName")).toBe("D'Arcy Jr.");
+    });
+
+    it.each(["", "   ", "a".repeat(25), "<script>", "../etc", "two\nlines", "-dash first", 7])("refuses the name %j", (bad) => {
+      expect(() => setSettings({ "persona.name": bad as never })).toThrow();
+      expect(() => setSettings({ "persona.ownerName": bad as never })).toThrow();
+      expect(getSetting("persona.name")).toBe("Veda");
+    });
+
+    it("takes the owner default from JARVIS_OWNER_NAME, ignoring an unusable value", () => {
+      vi.stubEnv("JARVIS_OWNER_NAME", "Prudhvi");
+      expect(getSetting("persona.ownerName")).toBe("Prudhvi");
+      vi.stubEnv("JARVIS_OWNER_NAME", "<b>x</b>");
+      expect(getSetting("persona.ownerName")).toBe("Raj");
+    });
+
+    it("a stored owner name wins over JARVIS_OWNER_NAME", () => {
+      vi.stubEnv("JARVIS_OWNER_NAME", "Prudhvi");
+      setSettings({ "persona.ownerName": "Boss" });
+      expect(getSetting("persona.ownerName")).toBe("Boss");
+    });
   });
 
   describe("voice settings", () => {
