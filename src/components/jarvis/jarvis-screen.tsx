@@ -158,6 +158,11 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
     weather,
   ]);
 
+  // Load the mini brain's model while the owner is still reaching for the mic, so the first answer isn't a cold start.
+  useEffect(() => {
+    void fetch("/api/brain/warm", { method: "POST" }).catch(() => {});
+  }, []);
+
   // Voice/Handy availability for the status chips.
   useEffect(() => {
     let cancelled = false;

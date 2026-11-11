@@ -1,7 +1,8 @@
-import { Bot, Cpu, Ear, Moon, Plug, Server, Smartphone, User } from "lucide-react";
+import { Bot, Cpu, Ear, Moon, Plug, Server, Smartphone, User, Zap } from "lucide-react";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { ClapWakePanel } from "@/components/settings/clap-wake-panel";
 import { HermesPanel } from "@/components/settings/hermes-panel";
+import { MiniBrainPanel } from "@/components/settings/mini-brain-panel";
 import { PersonaPanel } from "@/components/settings/persona-panel";
 import { RemoteAccessPanel } from "@/components/settings/remote-access-panel";
 import { ServicesPanel } from "@/components/settings/services-panel";
@@ -118,6 +119,14 @@ export default function SettingsPage() {
           subtitle="Open this dashboard from your phone over Tailscale. Nothing outside your tailnet can reach it."
         >
           <RemoteAccessPanel />
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<Zap className="size-4 text-muted-foreground" />}
+          title="Mini brain"
+          subtitle="A small local model that answers first and hands the rest to Hermes."
+        >
+          <MiniBrainPanel />
         </SettingsSection>
 
         <SettingsSection

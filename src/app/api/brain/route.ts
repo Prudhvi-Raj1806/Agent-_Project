@@ -2,9 +2,21 @@ import { NextResponse } from "next/server";
 import { requireAccess } from "@/server/access/guard";
 import { handleRequest } from "@/server/brain";
 import { cleanHistory } from "@/server/brain/chat";
+import { getBrainStatus } from "@/server/brain/status";
 import { logger } from "@/server/logging/logger";
 
 const MAX_TEXT_LENGTH = 2_000;
+
+/** Whether the mini brain is on, which model it uses, and whether that model is ready. */
+export async function GET(request: Request) {
+  const denied = requireAccess(request);
+  if (denied) return denied;
+  try {
+    return NextResponse.json(await getBrainStatus());
+  } catch {
+    return NextResponse.json({ error: "Couldn't read the mini brain's status." }, { status: 500 });
+  }
+}
 
 /**
  * One typed or spoken request for the mini brain. It answers itself, runs a

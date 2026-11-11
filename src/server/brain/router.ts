@@ -1,6 +1,6 @@
 import type { ClassifyInput, ClassifyResult, DecisionModelAdapter, DecisionModelHealth } from "@/server/laya/types";
 import type { BrainSkill } from "./skills/types";
-import { ModelTimeoutError, type ModelClient } from "./types";
+import type { ModelClient } from "./types";
 
 export const CHOICE_CHAT = "chat";
 export const CHOICE_HERMES = "hermes";
@@ -75,8 +75,9 @@ function readChoice(answer: string, allowed: readonly string[]): string | null {
  * The mini brain's router, as a DecisionModelAdapter: one call that picks an
  * id from a closed list. The model is told to answer only with a listed id,
  * and anything else that comes back (or a timeout) is "unclear" with zero
- * confidence, never a guess. An unavailable model is not swallowed: the
- * caller decides whether to start it or fall back.
+ * confidence, never a guess. A timeout or an unavailable model is not
+ * swallowed: the caller decides whether to say it was slow, start the server,
+ * or fall back to Hermes.
  */
 export function createRouter(client: ModelClient, model: string, skills: BrainSkill[]): DecisionModelAdapter {
   const prompt = buildRouterPrompt(skills);
@@ -90,22 +91,16 @@ export function createRouter(client: ModelClient, model: string, skills: BrainSk
         properties: { choice: { type: "string", enum: input.schema } },
         required: ["choice"],
       };
-      let answer: string;
-      try {
-        answer = await client.chat({
-          model,
-          messages: [
-            { role: "system", content: prompt },
-            { role: "user", content: input.state },
-          ],
-          format,
-          maxTokens: MAX_TOKENS,
-          timeoutMs: TIMEOUT_MS,
-        });
-      } catch (err) {
-        if (err instanceof ModelTimeoutError) return { decision: CHOICE_UNCLEAR, confidence: 0 };
-        throw err;
-      }
+      const answer = await client.chat({
+        model,
+        messages: [
+          { role: "system", content: prompt },
+          { role: "user", content: input.state },
+        ],
+        format,
+        maxTokens: MAX_TOKENS,
+        timeoutMs: TIMEOUT_MS,
+      });
       const choice = readChoice(answer, input.schema);
       return choice ? { decision: choice, confidence: 1 } : { decision: CHOICE_UNCLEAR, confidence: 0 };
     },

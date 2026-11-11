@@ -37,6 +37,23 @@ Both names are changed in **Settings → Name and personality**: what the assist
 
 The personality is Hermes's own `SOUL.md`, in Hermes's home folder. The panel edits that file directly (up to 4,000 characters), and each save first copies the previous version beside it as `SOUL.md.bak-dashboard-<time>`. Renaming the assistant does not rewrite the personality, so update the name there too.
 
+## Mini brain
+
+A small local model hears every typed or spoken request first. It answers small talk itself, runs a fixed list of local skills (time, schedule, system status, briefing, opening VS Code or Obsidian, notes, screenshot, weather, music), and hands anything else to Hermes, saying "That needs Hermes. Handing it over."
+
+- **Needs:** [Ollama](https://ollama.com) running, with the `phi4-mini` model (`ollama pull phi4-mini`). If Ollama is stopped the dashboard starts it; if the model can't be reached, requests go to Hermes as before.
+- **Force a hand-off:** start a request with "Hermes," to skip the mini brain.
+- **Settings → Mini brain:** switch it off, pick another installed model, see whether the model is loaded, and run a quick test.
+- **Speed:** keep Hermes on a different model. While Hermes is generating on the same local model, the mini brain has to wait its turn.
+
+Routing is checked against the real model on demand, because it needs Ollama:
+
+```bash
+npm run brain:eval
+```
+
+It runs about 160 phrases and the chat-honesty check. Routing is not perfect (about 92% on those phrases, lower on new phrasing), which is why requests that start with a do-something verb go to Hermes by rule, every chat pick is confirmed with a second question, and a chat reply that claims an action is discarded and handed to Hermes.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -138,6 +138,8 @@ export async function handleRequest(
   try {
     return await decide(text, input.history, model, deps);
   } catch (err) {
+    // Routing itself was too slow (a busy machine, or the model still loading): say so, don't claim a misheard request.
+    if (err instanceof ModelTimeoutError) return { kind: "unclear", text: TOO_SLOW_LINE };
     if (!(err instanceof ModelUnavailableError)) throw err;
   }
 
@@ -145,6 +147,7 @@ export async function handleRequest(
     try {
       return await decide(text, input.history, model, deps);
     } catch (err) {
+      if (err instanceof ModelTimeoutError) return { kind: "unclear", text: TOO_SLOW_LINE };
       // Still unreachable after a start: most likely the chosen model isn't installed.
       if (!(err instanceof ModelUnavailableError)) throw err;
     }

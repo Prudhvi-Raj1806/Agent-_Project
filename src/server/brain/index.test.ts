@@ -198,6 +198,14 @@ describe("hand-off to Hermes", () => {
 });
 
 describe("unclear", () => {
+  it("says it was slow, not that it misheard, when routing times out", async () => {
+    const { client } = scriptedClient(new ModelTimeoutError("slow"));
+    const { deps } = makeDeps(client);
+
+    expect(await ask("what time is it", deps)).toEqual({ kind: "unclear", text: "That took too long. Try again?" });
+    expect(deps.handoff).not.toHaveBeenCalled();
+  });
+
   it("asks for another try", async () => {
     const { client } = scriptedClient(pick("unclear"));
     expect(await ask("the uh", makeDeps(client).deps)).toEqual({

@@ -90,9 +90,9 @@ describe("router", () => {
     },
   );
 
-  it("treats a timeout as unclear", async () => {
+  it("lets a timeout through, so the caller can say it was slow rather than unclear", async () => {
     const { client } = fakeClient(new ModelTimeoutError("slow"));
-    expect(await classify(client, "anything")).toEqual({ decision: CHOICE_UNCLEAR, confidence: 0 });
+    await expect(classify(client, "anything")).rejects.toBeInstanceOf(ModelTimeoutError);
   });
 
   it("lets an unavailable model through, so the caller can start it or fall back", async () => {

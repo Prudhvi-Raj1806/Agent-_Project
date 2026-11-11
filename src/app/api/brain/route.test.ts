@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const handleRequest = vi.hoisted(() => vi.fn());
 vi.mock("@/server/brain", () => ({ handleRequest }));
+const getBrainStatus = vi.hoisted(() => vi.fn());
+vi.mock("@/server/brain/status", () => ({ getBrainStatus }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const url = "http://localhost/api/brain";
 const post = (body: unknown, via: string | null = "local") =>
@@ -72,5 +74,27 @@ describe("POST /api/brain", () => {
     const res = await post({ text: "hi" });
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "The mini brain hit an error." });
+  });
+});
+
+describe("GET /api/brain", () => {
+  const status = { enabled: true, model: "phi4-mini", ollamaRunning: false, installed: [] };
+  const get = (via: string | null = "local") =>
+    GET(new Request(url, { headers: via ? { "x-access-via": via } : {} }));
+
+  beforeEach(() => {
+    getBrainStatus.mockReset();
+    getBrainStatus.mockResolvedValue(status);
+  });
+
+  it("refuses a request the proxy did not stamp", async () => {
+    expect((await get(null)).status).toBe(403);
+    expect(getBrainStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns the mini brain's status", async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(status);
   });
 });
