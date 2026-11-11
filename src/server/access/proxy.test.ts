@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { proxy } from "../../proxy";
+import { config, proxy } from "../../proxy";
 import { getDb, resetDbForTests } from "@/server/db/client";
 import { setSettings } from "@/server/settings/store";
 import { ACCESS_HEADER } from "./guard";
@@ -83,5 +83,28 @@ describe("proxy", () => {
     state.failReads = true;
     expect(proxy(request("/api/x", { headers: { host: "localhost:3000" } })).status).toBe(200);
     expect(proxy(request("/api/x", { headers: phone })).status).toBe(403);
+  });
+});
+
+describe("proxy matcher", () => {
+  // Next compiles the matcher as a path pattern; for this simple lookahead form it is equivalent to this regex.
+  const matches = (path: string) => new RegExp(`^${config.matcher[0]}$`).test(path);
+
+  it("gates pages and API routes", () => {
+    for (const path of ["/", "/jarvis", "/settings", "/api/app-settings", "/api/voice/speak", "/api/services/kokoro/start"]) {
+      expect(matches(path)).toBe(true);
+    }
+  });
+
+  it("lets the image optimizer's header-less internal fetch of public images through", () => {
+    for (const path of ["/Jarvis Hero.png", "/Jarvis%20Hero.png", "/brand/veda-mark.png", "/brand/logo.SVG".toLowerCase(), "/photo.jpeg"]) {
+      expect(matches(path)).toBe(false);
+    }
+  });
+
+  it("never exempts a data route that merely contains an image word", () => {
+    for (const path of ["/api/png", "/api/images/list", "/png/data", "/api/voice/speak.json"]) {
+      expect(matches(path)).toBe(true);
+    }
   });
 });
