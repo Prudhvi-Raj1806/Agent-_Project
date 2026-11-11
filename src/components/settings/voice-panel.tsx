@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Volume2 } from "lucide-react";
 import { speakInBrowser } from "@/lib/jarvis/browser-voice";
+import { voiceTestLine } from "@/lib/jarvis/voice-test-line";
 import { useAppSettings } from "@/lib/settings/app-settings-context";
 import type { SettingsShape } from "@/server/settings/schema";
 
@@ -59,8 +60,6 @@ const PROVIDER_NAME: Record<string, string> = {
   browser: "Browser voice",
 };
 
-const TEST_LINE = "Veda here. Voice check.";
-
 const field =
   "rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm text-foreground disabled:opacity-50";
 const button =
@@ -104,16 +103,17 @@ export function VoicePanel() {
     setTesting(true);
     setError(null);
     setTestResult(null);
+    const line = voiceTestLine(settings["persona.name"]);
     const started = performance.now();
     try {
       const res = await fetch("/api/voice/speak", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: TEST_LINE }),
+        body: JSON.stringify({ text: line }),
       });
       const ms = Math.round(performance.now() - started);
       if (!res.ok) {
-        speakInBrowser(TEST_LINE);
+        speakInBrowser(line);
         setTestResult(`Browser voice (no server voice answered) · ${ms} ms`);
         return;
       }
