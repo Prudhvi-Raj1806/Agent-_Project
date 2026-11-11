@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Volume2 } from "lucide-react";
+import { speakInBrowser } from "@/lib/jarvis/browser-voice";
 import { useAppSettings } from "@/lib/settings/app-settings-context";
 import type { SettingsShape } from "@/server/settings/schema";
 
@@ -64,12 +65,6 @@ const field =
   "rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm text-foreground disabled:opacity-50";
 const button =
   "inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50";
-
-function speakInBrowser(text: string) {
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-  }
-}
 
 /** How the owner's voice is chosen: which engine speaks, which voice, where replies play, and dictation behaviour. */
 export function VoicePanel() {

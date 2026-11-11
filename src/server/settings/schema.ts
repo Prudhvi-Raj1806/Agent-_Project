@@ -86,12 +86,15 @@ function parseVoiceName(value: unknown): string {
 
 /** A Kokoro voice id: a built-in such as af_heart, or the file name of a custom voice. No dots or slashes, ever. */
 const KOKORO_VOICE = /^[a-z][a-z0-9_-]{1,31}$/;
+const MALE_BUILT_IN = /^[a-z]m_/;
 const DEFAULT_KOKORO_VOICE = "af_heart";
 
 function parseKokoroVoice(value: unknown): string {
   if (typeof value !== "string") throw new Error("Expected text.");
   const voice = value.trim().toLowerCase();
-  if (!KOKORO_VOICE.test(voice)) throw new Error("A Kokoro voice looks like af_heart, bm_george or a custom voice name.");
+  if (!KOKORO_VOICE.test(voice)) throw new Error("A Kokoro voice looks like af_heart, bf_emma or a custom voice name.");
+  // Veda is female-only: built-in male voices (second letter "m", as in am_adam) are refused.
+  if (MALE_BUILT_IN.test(voice)) throw new Error("Only female voices are available.");
   return voice;
 }
 

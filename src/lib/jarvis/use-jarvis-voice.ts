@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { applyFemaleVoice } from "./browser-voice";
 import { followEnvelope, rmsFromTimeDomain, syntheticSpeechLevel } from "./envelope";
 
 export type JarvisVoiceState = "idle" | "thinking" | "speaking";
@@ -129,6 +130,7 @@ export function useJarvisVoice(options: JarvisVoiceOptions = {}): JarvisVoice {
         return;
       }
       const utterance = new SpeechSynthesisUtterance(text);
+      applyFemaleVoice(utterance);
       utterance.onstart = () => {
         if (requestId !== requestIdRef.current) return;
         startedAtRef.current = performance.now();

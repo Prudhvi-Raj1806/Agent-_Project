@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { speakInBrowser } from "@/lib/jarvis/browser-voice";
 import { useSpotifyPlayer } from "@/lib/spotify/use-spotify-player";
 import { useClapDetector, type ClapDetectorStatus } from "./use-clap-detector";
 
@@ -35,10 +36,8 @@ function speak(text: string) {
       await audio.play();
     })
     .catch(() => {
-      // No ElevenLabs (or it failed) — fall back to the browser's own voice.
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-      }
+      // No server voice could speak — fall back to the browser's own (female) voice.
+      speakInBrowser(text);
     });
 }
 

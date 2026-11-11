@@ -93,14 +93,24 @@ describe("settings store", () => {
     });
 
     it("accepts built-in and custom Kokoro voice names, and refuses anything path-like", () => {
-      setSettings({ "voice.kokoroVoice": " BM_George " });
-      expect(getSetting("voice.kokoroVoice")).toBe("bm_george");
+      setSettings({ "voice.kokoroVoice": " BF_Emma " });
+      expect(getSetting("voice.kokoroVoice")).toBe("bf_emma");
       setSettings({ "voice.kokoroVoice": "friday" });
       expect(getSetting("voice.kokoroVoice")).toBe("friday");
       for (const bad of ["", "a", "../../x", "a/b", "c:\\\\x", "friday.pt", "Friday!", "x".repeat(33), 7]) {
         expect(() => setSettings({ "voice.kokoroVoice": bad as never })).toThrow();
       }
       expect(getSetting("voice.kokoroVoice")).toBe("friday");
+    });
+
+    it("is female-only: refuses every built-in male Kokoro voice and keeps a female default", () => {
+      expect(getSetting("voice.kokoroVoice")).toBe("af_heart");
+      for (const male of ["am_adam", "bm_george", "em_alex", "hm_psi", "im_nicola", "jm_kumo", "pm_alex", "zm_yunxi", "AM_ECHO"]) {
+        expect(() => setSettings({ "voice.kokoroVoice": male })).toThrow(/female/i);
+      }
+      expect(getSetting("voice.kokoroVoice")).toBe("af_heart");
+      setSettings({ "voice.kokoroVoice": "zf_xiaoxiao" });
+      expect(getSetting("voice.kokoroVoice")).toBe("zf_xiaoxiao");
     });
 
     it("stores the auto-send switch as a boolean only", () => {

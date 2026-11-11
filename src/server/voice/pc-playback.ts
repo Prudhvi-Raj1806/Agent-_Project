@@ -51,6 +51,8 @@ export const SPEAK_TEXT_SCRIPT = [
   "Add-Type -AssemblyName System.Speech",
   "$text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:VEDA_SPEECH_TEXT))",
   "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer",
+  // Veda is female-only; Windows' default voice is often male (David), so ask for a female one.
+  "try { $s.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female) } catch { }",
   "$s.Speak($text)",
   "$s.Dispose()",
 ].join("; ");

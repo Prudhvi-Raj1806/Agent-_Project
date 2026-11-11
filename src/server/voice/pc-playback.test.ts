@@ -66,6 +66,12 @@ describe("speaking on the PC", () => {
     expect(Buffer.from(env.VEDA_SPEECH_TEXT, "base64").toString("utf8")).toBe("Good evening, café.");
   });
 
+  it("asks Windows for a female voice, since its default is often male", () => {
+    expect(SPEAK_TEXT_SCRIPT).toContain("SelectVoiceByHints");
+    expect(SPEAK_TEXT_SCRIPT).toContain("VoiceGender]::Female");
+    expect(SPEAK_TEXT_SCRIPT.indexOf("SelectVoiceByHints")).toBeLessThan(SPEAK_TEXT_SCRIPT.indexOf("$s.Speak"));
+  });
+
   it("falls back to Windows' voice when the audio can't be played, and still cleans up", async () => {
     const d = deps({ synthesize: audio("elevenlabs") });
     d.runScript.mockResolvedValueOnce(2).mockResolvedValueOnce(0);

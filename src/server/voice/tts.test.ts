@@ -160,14 +160,14 @@ describe("speech provider chain", () => {
 
     it("auto speaks with Kokoro first and never touches the others", async () => {
       allUp();
-      const out = await synthesizeSpeechDetailed("hello", { provider: "auto", voice: "alloy", kokoroVoice: "bm_george" });
+      const out = await synthesizeSpeechDetailed("hello", { provider: "auto", voice: "alloy", kokoroVoice: "bf_emma" });
       expect(out?.provider).toBe("kokoro");
       expect(out?.contentType).toBe("audio/wav");
       expect(touched("3900")).toBe(false);
       expect(touched("elevenlabs")).toBe(false);
       const call = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/v1/audio/speech"))!;
       expect(String(call[0])).toBe("http://127.0.0.1:8880/v1/audio/speech");
-      expect(JSON.parse(call[1].body)).toMatchObject({ input: "hello", voice: "bm_george", response_format: "wav" });
+      expect(JSON.parse(call[1].body)).toMatchObject({ input: "hello", voice: "bf_emma", response_format: "wav" });
     });
 
     it("auto falls through to Voice Studio when Kokoro is down", async () => {

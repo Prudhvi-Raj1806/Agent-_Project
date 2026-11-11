@@ -32,8 +32,9 @@ PORT = int(os.environ.get("KOKORO_PORT", "8880"))
 
 # The 54 voices in hexgrad/Kokoro-82M. The first letter is the language code
 # KPipeline needs: a American English, b British, e Spanish, f French, h Hindi,
-# i Italian, j Japanese, p Brazilian Portuguese, z Mandarin.
-VOICES = [
+# i Italian, j Japanese, p Brazilian Portuguese, z Mandarin. The second letter
+# is the gender (f or m). Veda is female-only, so only the "f" voices are offered.
+ALL_VOICES = [
     "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova",
     "af_river", "af_sarah", "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam",
     "am_michael", "am_onyx", "am_puck", "am_santa", "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
@@ -42,6 +43,7 @@ VOICES = [
     "jf_nezumi", "jf_tebukuro", "jm_kumo", "pf_dora", "pm_alex", "pm_santa", "zf_xiaobei",
     "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
 ]
+VOICES = [voice for voice in ALL_VOICES if voice[1] == "f"]
 VOICE_SET = set(VOICES)
 
 # OpenAI's voice names (what generic clients send) all map to the default voice.
