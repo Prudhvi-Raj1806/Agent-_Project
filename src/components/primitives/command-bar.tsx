@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Mic, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { askBrain } from "@/lib/jarvis/brain-run";
 import { useBrand } from "@/lib/settings/use-brand";
+
+/** How long a mini brain reply stays under the bar. */
+const REPLY_SHOWN_MS = 8_000;
 
 interface CommandBarProps {
   placeholder?: string;
@@ -19,6 +23,8 @@ export function CommandBar({
   const [value, setValue] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [reply, setReply] = useState<string | null>(null);
+  const replyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -46,33 +52,44 @@ export function CommandBar({
     };
   }, []);
 
+  /** Shows a mini brain reply under the bar, then clears it. Typed requests are not spoken. */
+  function showReply(text: string | null) {
+    if (replyTimer.current) clearTimeout(replyTimer.current);
+    setReply(text);
+    replyTimer.current = text === null ? null : setTimeout(() => setReply(null), REPLY_SHOWN_MS);
+  }
+
+  useEffect(
+    () => () => {
+      if (replyTimer.current) clearTimeout(replyTimer.current);
+    },
+    [],
+  );
+
   async function submit() {
     const objective = value.trim();
     if (!objective || status === "submitting") return;
 
     setStatus("submitting");
     setError(null);
+    showReply(null);
     try {
-      const res = await fetch("/api/missions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objective }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "Couldn't create that mission.");
-        setStatus("error");
-        return;
-      }
+      // The mini brain hears it first: it answers here, or hands it to Hermes as a mission.
+      const answer = await askBrain(objective, []);
       setValue("");
       setStatus("idle");
+      if (answer.kind !== "handoff") {
+        showReply(answer.text);
+        return;
+      }
       if (pathname === "/work") {
         router.refresh();
       } else {
         router.push("/work");
       }
-    } catch {
-      setError(`Couldn't reach ${brand}.`);
+    } catch (err) {
+      // A refused request carries the server's reason; a network failure has none worth showing.
+      setError(err instanceof TypeError ? `Couldn't reach ${brand}.` : err instanceof Error ? err.message : `Couldn't reach ${brand}.`);
       setStatus("error");
     }
   }
@@ -118,6 +135,14 @@ export function CommandBar({
       </div>
       {error && (
         <p className="absolute top-full left-1 z-20 mt-1 text-[11px] text-status-error">{error}</p>
+      )}
+      {reply && !error && (
+        <p
+          role="status"
+          className="absolute top-full right-0 left-0 z-20 mt-1 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs leading-snug text-foreground shadow-[0_8px_24px_-12px_rgba(0,0,0,0.7)]"
+        >
+          {reply}
+        </p>
       )}
     </div>
   );

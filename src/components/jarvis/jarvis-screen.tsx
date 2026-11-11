@@ -17,6 +17,7 @@ import {
   runMissionToSettled,
   submitToolApproval,
 } from "@/lib/jarvis/mission-run";
+import { SLOW_NOTICE_MS, askBrain, nextHistory, type BrainResponse, type Exchange } from "@/lib/jarvis/brain-run";
 import { missionSpeech } from "@/lib/jarvis/mission-speech";
 import { useJarvisVoice, type JarvisVoiceState } from "@/lib/jarvis/use-jarvis-voice";
 import { useSpeechInput } from "@/lib/jarvis/use-speech-input";
@@ -138,6 +139,10 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastMissionId, setLastMissionId] = useState<string | null>(null);
+  /** Who answered the last request, shown as a small tag so a wrong hand-off (or a missing one) is visible. */
+  const [answeredBy, setAnsweredBy] = useState<"Mini brain" | "Hermes" | null>(null);
+  /** The last three chat exchanges, sent with each request. Lives only as long as this page. */
+  const historyRef = useRef<Exchange[]>([]);
   const [pendingApproval, setPendingApproval] = useState<{ missionId: string; approval: PendingToolApproval } | null>(
     null,
   );
@@ -237,9 +242,59 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
         return;
       }
       setHeard(objective);
-      await track((signal) => runMissionToSettled(objective, browserMissionRunDeps(), signal));
+
+      // The mini brain hears every request first. It answers itself, or hands the request to Hermes.
+      runRef.current?.abort();
+      const controller = new AbortController();
+      runRef.current = controller;
+      setNotice(null);
+      setLastMissionId(null);
+      setAnsweredBy(null);
+      setWorking(true);
+      setThinking(true);
+      const slow = setTimeout(() => {
+        if (!controller.signal.aborted) speak("One moment.");
+      }, SLOW_NOTICE_MS);
+
+      let answer: BrainResponse | null = null;
+      try {
+        answer = await askBrain(objective, historyRef.current, controller.signal);
+      } catch {
+        // The brain's route couldn't be reached at all; fall back to a plain mission below.
+      } finally {
+        clearTimeout(slow);
+      }
+      if (controller.signal.aborted) return;
+
+      if (!answer) {
+        setAnsweredBy("Hermes");
+        await track((signal) => runMissionToSettled(objective, browserMissionRunDeps(), signal));
+        return;
+      }
+
+      if (answer.kind === "handoff") {
+        const { missionId, notice: handoffNotice, text: handoffLine } = answer;
+        setAnsweredBy("Hermes");
+        if (handoffLine) speak(handoffLine);
+        // track() clears the notice as it starts, so the brain's notice is set just after.
+        const followed = track((signal) => resumeMissionToSettled(missionId, browserMissionRunDeps(), signal));
+        if (handoffNotice) setNotice(handoffNotice);
+        await followed;
+        return;
+      }
+
+      if (runRef.current === controller) {
+        runRef.current = null;
+        setWorking(false);
+      }
+      setThinking(false);
+      setAnsweredBy("Mini brain");
+      speak(answer.text);
+      if (answer.kind === "reply" && answer.choice === "chat" && answer.ok) {
+        historyRef.current = nextHistory(historyRef.current, objective, answer.text);
+      }
     },
-    [pendingApproval, track],
+    [pendingApproval, setThinking, speak, track],
   );
 
   /** Sends the owner's ALLOW/DENY, then carries on waiting for the mission to settle again. */
@@ -391,6 +446,9 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               </p>
             )}
             <p className="text-sm leading-snug text-muted-foreground">{captionText}</p>
+            {answeredBy && !working && (
+              <p className="font-mono text-[10px] uppercase tracking-wider text-text-dim">{answeredBy}</p>
+            )}
             {notice && <p className="text-xs text-status-warning">{notice}</p>}
             {lastMissionId && !working && (
               <Link
