@@ -126,7 +126,7 @@ describe("routeRequest", () => {
     const { client, seen } = scripted('{"choice":"chat"}', '{"answer":"act"}');
     await route(client, hostile);
 
-    const [routing, check] = seen;
+    const check = seen[1];
     expect(check.format).toEqual({
       type: "object",
       properties: { answer: { type: "string", enum: ["talk", "act"] } },
@@ -134,15 +134,12 @@ describe("routeRequest", () => {
     });
     expect(check.maxTokens).toBe(20);
     expect(check.timeoutMs).toBe(5000);
-    // The check continues the router's own conversation, so the model reuses the prompt it has already read.
-    expect(check.messages).toHaveLength(4);
-    expect(check.messages[0]).toEqual(routing.messages[0]);
+    // A standalone question, not a continuation of the router's conversation (that was measured to be worse).
+    expect(check.messages).toHaveLength(2);
+    expect(check.messages[0].role).toBe("system");
+    expect(check.messages[0].content).toMatch(/"talk"/);
     expect(check.messages[0].content).not.toContain(hostile);
     expect(check.messages[1]).toEqual({ role: "user", content: hostile });
-    expect(check.messages[2]).toEqual({ role: "assistant", content: '{"choice":"chat"}' });
-    expect(check.messages[3].role).toBe("user");
-    expect(check.messages[3].content).toMatch(/"talk"/);
-    expect(check.messages[3].content).not.toContain(hostile);
   });
 
   it("lets a router timeout through, so the caller can say it was slow", async () => {

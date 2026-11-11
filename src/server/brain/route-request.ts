@@ -1,4 +1,4 @@
-import { CHOICE_CHAT, CHOICE_HERMES, buildRouterPrompt, choiceIds, createRouter } from "./router";
+import { CHOICE_CHAT, CHOICE_HERMES, choiceIds, createRouter } from "./router";
 import type { BrainSkill } from "./skills/types";
 import { ModelTimeoutError, type ModelClient } from "./types";
 
@@ -14,8 +14,8 @@ const CHECK_TIMEOUT_MS = 5_000;
  * question is much easier for it than the long list, so every chat pick is
  * confirmed here before the small model is allowed to answer.
  */
-const CHECK_QUESTION = [
-  "Now a narrower question about that same request. An assistant that can only talk received it. It has no tools: it cannot send anything, open anything, look anything up, or see the user's messages, files, calendar or location.",
+const CHECK_PROMPT = [
+  "An assistant that can only talk received one request. It has no tools: it cannot send anything, open anything, look anything up, or see the user's messages, files, calendar or location.",
   'Answer "talk" if a spoken reply from general knowledge is all that is wanted: small talk, thanks, jokes, opinions, explanations, spelling, arithmetic.',
   'Answer "act" if the request wants something done or found: sending or replying to a message or email, calling, booking, ordering, finding places or products, anything current or nearby, or anything about the user\'s own messages, files, apps or plans.',
   'Reply with JSON only: {"answer": "talk"} or {"answer": "act"}.',
@@ -51,21 +51,19 @@ export function startsByAskingForAction(text: string): boolean {
  * True only when the check positively says a spoken answer is enough. Anything
  * else means hand off.
  *
- * The check continues the router's own conversation (same system prompt, the
- * request, the router's answer, then the narrower question) instead of
- * starting a new one. The model then reuses the long prompt it has already
- * read, which on this PC is the difference between a second and several.
+ * Tried and measured: continuing the router's own conversation with this as a
+ * follow-up question (to reuse its prompt) was worse on both counts, 80%
+ * right against 92% and 1.7 s median against 1.0 s, with nearly every chat
+ * request answered "act". The check stays a separate, standalone question.
  */
-async function talkIsEnough(client: ModelClient, model: string, skills: BrainSkill[], text: string): Promise<boolean> {
+async function talkIsEnough(client: ModelClient, model: string, text: string): Promise<boolean> {
   let answer: string;
   try {
     answer = await client.chat({
       model,
       messages: [
-        { role: "system", content: buildRouterPrompt(skills) },
+        { role: "system", content: CHECK_PROMPT },
         { role: "user", content: text },
-        { role: "assistant", content: JSON.stringify({ choice: CHOICE_CHAT }) },
-        { role: "user", content: CHECK_QUESTION },
       ],
       format: CHECK_FORMAT,
       maxTokens: CHECK_MAX_TOKENS,
@@ -100,5 +98,5 @@ export async function routeRequest(
     schema: choiceIds(skills),
   });
   if (decision !== CHOICE_CHAT) return decision;
-  return (await talkIsEnough(client, model, skills, text)) ? CHOICE_CHAT : CHOICE_HERMES;
+  return (await talkIsEnough(client, model, text)) ? CHOICE_CHAT : CHOICE_HERMES;
 }
