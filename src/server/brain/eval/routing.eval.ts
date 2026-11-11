@@ -1,8 +1,25 @@
 import { expect, it } from "vitest";
 import { createOllamaClient } from "../ollama";
-import { CHOICE_CHAT, CHOICE_HERMES, choiceIds, createRouter } from "../router";
+import { routeRequest } from "../route-request";
+import { CHOICE_CHAT, CHOICE_HERMES, choiceIds } from "../router";
 import { createSkills, defaultSkillSources } from "../skills";
-import phrases from "./phrases.json";
+import heldout from "./heldout.json";
+import tuned from "./phrases.json";
+
+/**
+ * Two phrase sets. `phrases.json` is the working set: the router's wording and
+ * rules were adjusted while looking at its misses, so its score flatters the
+ * router. `heldout.json` is for phrases written afterwards and not yet looked
+ * at; run it with BRAIN_SET=heldout to see how routing does on fresh phrasing.
+ *
+ * Once a held-out batch has been looked at it is spent: move it into
+ * `phrases.json`, fix what it showed in general terms, and write new phrases
+ * for the next look. Three batches were spent this way while building the
+ * router; the last clean look scored 20 of 26, with 3 of 16 do-something
+ * requests answered as chat, which is why `route-request.ts` has two guards
+ * besides the model and why the chat prompt forbids claiming an action.
+ */
+const phrases = process.env.BRAIN_SET === "heldout" ? heldout : tuned;
 
 /**
  * The routing check: runs every phrase through the real local model. Not part
@@ -20,7 +37,6 @@ it("routes real phrases with the local model", async () => {
   const client = createOllamaClient();
   const skills = createSkills(defaultSkillSources());
   const ids = choiceIds(skills);
-  const router = createRouter(client, model, skills);
 
   if (!(await client.status()).running) throw new Error("Ollama isn't running. Start it, then run the check again.");
 
@@ -36,7 +52,7 @@ it("routes real phrases with the local model", async () => {
       continue;
     }
     const started = performance.now();
-    const { decision } = await router.classify({ state: text, question: "choice", schema: ids });
+    const decision = await routeRequest(text, { client, model, skills });
     times.push(performance.now() - started);
     if (decision === expected) {
       right += 1;
@@ -47,6 +63,7 @@ it("routes real phrases with the local model", async () => {
   }
 
   const judged = phrases.length - skipped;
+  if (judged === 0) throw new Error("This phrase set is empty. Add phrases to it first.");
   times.sort((a, b) => a - b);
   const median = times[Math.floor(times.length / 2)] ?? 0;
   console.log(

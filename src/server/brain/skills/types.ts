@@ -1,4 +1,5 @@
-import type { SystemStatus } from "@/lib/data/types";
+import type { ScheduleItem, SystemStatus, WeatherStatus } from "@/lib/data/types";
+import type { SpotifyNowPlaying } from "@/server/spotify/types";
 
 /**
  * One thing the mini brain can do by itself. Skills take no arguments and
@@ -20,5 +21,17 @@ export interface BrainSkill {
 /** Where skills get their data. Injected, so every skill is testable without the real services. */
 export interface SkillSources {
   now(): Date;
+  ownerName(): string;
   system(): Promise<SystemStatus>;
+  schedule(): Promise<ScheduleItem[]>;
+  weather(): Promise<WeatherStatus | null>;
+  /** Runs one of the dashboard's quick actions by id, through the same governed path its button uses. */
+  runAction(id: string): Promise<{ ok: boolean; message: string }>;
+  music: {
+    play(): Promise<void>;
+    pause(): Promise<void>;
+    next(): Promise<void>;
+    previous(): Promise<void>;
+    nowPlaying(): Promise<SpotifyNowPlaying>;
+  };
 }
