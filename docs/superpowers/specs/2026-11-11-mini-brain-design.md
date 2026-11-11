@@ -157,11 +157,12 @@ All routes use `requireAccess`, so the owner's phone can use them.
 - `POST /api/brain` with `{ text, history? }`. `text` is 1 to 2,000 characters;
   `history` is at most 6 messages of at most 1,000 characters each. Returns one of:
   - `{ kind: "reply", text, choice, ok }` (a skill or chat answered)
-  - `{ kind: "handoff", text, missionId }` (`text` is empty when the brain is
-    switched off or unavailable, so the page says nothing extra)
+  - `{ kind: "handoff", text, missionId, notice? }` (`text` is empty when the brain
+    is switched off or unavailable, so the page says nothing extra; `notice` is
+    "The mini brain is off." when it was unavailable, for the page to show)
   - `{ kind: "unclear", text }`
   - 400 for a bad body; nothing is run.
-- `GET /api/brain`: `{ enabled, model, ollamaRunning, modelLoaded, persona: "soul" | "starter", lastAnswerMs }`.
+- `GET /api/brain`: `{ enabled, model, ollamaRunning, modelInstalled, modelLoaded, installed, persona: "soul" | "starter", lastAnswerMs }`, where `installed` lists the models Ollama has.
 - `POST /api/brain/warm`: loads the model if it is not loaded. Returns the same
   status.
 
@@ -229,7 +230,7 @@ by review:
   reports a stopped Hermes; every row of the table above.
 - Route tests for the 403 and 400 paths and the three response kinds.
 - Routing check against the real model, run on demand with `npm run brain:eval`
-  because it needs Ollama: about 60 phrases with the expected pick, kept in
+  because it needs Ollama: at least 60 phrases with the expected pick, kept in
   `src/server/brain/eval/phrases.json`. It passes when at least 90% are right and
   no phrase that expects `hermes` is answered as `chat`.
 - By hand: a spoken round trip on the Jarvis screen with Wi-Fi off (dictation,
