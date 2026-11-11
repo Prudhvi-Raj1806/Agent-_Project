@@ -31,6 +31,12 @@ The dashboard works from a phone over [Tailscale](https://tailscale.com), never 
 
 Turning the switch off, or pressing Disable, cuts the phone off at once. Changes made from the phone are recorded in the audit log.
 
+## Name and personality
+
+Both names are changed in **Settings → Name and personality**: what the assistant is called (default "Veda") and what it calls you. `JARVIS_OWNER_NAME` in `.env.local` is only the default for your name; a name saved in Settings wins.
+
+The personality is Hermes's own `SOUL.md`, in Hermes's home folder. The panel edits that file directly (up to 4,000 characters), and each save first copies the previous version beside it as `SOUL.md.bak-dashboard-<time>`. Renaming the assistant does not rewrite the personality, so update the name there too.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
