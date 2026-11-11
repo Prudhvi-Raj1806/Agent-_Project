@@ -1,4 +1,4 @@
-# RAJ (codename JARVIS, `jarvis-ui`)
+# Veda (codename JARVIS, `jarvis-ui`)
 
 Raj's personal AI operating system — the personal intelligence, orchestration,
 and authority layer. Owns identity, mission state, and approval policy;
