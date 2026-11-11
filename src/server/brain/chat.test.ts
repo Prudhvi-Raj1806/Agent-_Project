@@ -76,6 +76,13 @@ describe("claimsAnAction", () => {
     "I've ordered the pizza.",
     "Okay, I'll let your team know.",
     "I texted her for you.",
+    "Raj, I’ve sent a birthday message to your brother.",
+    "I’ll call your mom later.",
+    "Let me send that to your team.",
+    "let me call the restaurant for you",
+    "I'm sending the email now.",
+    "I am booking the table.",
+    "I’m texting her right away.",
   ])("catches %j, which chat can never truthfully say", (reply) => {
     expect(claimsAnAction(reply)).toBe(true);
   });
@@ -88,6 +95,11 @@ describe("claimsAnAction", () => {
     "The capital of France is Paris.",
     "I'm not sure, but I think it was 1969.",
     "You could send a short message saying you'll be late.",
+    "Let me think about that for a second.",
+    "Let me know if you want another one.",
+    "I’m not sure, but I think so.",
+    "I’ve heard that one before.",
+    "I'm here to help.",
   ])("leaves %j alone", (reply) => {
     expect(claimsAnAction(reply)).toBe(false);
   });

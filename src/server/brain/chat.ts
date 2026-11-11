@@ -24,16 +24,25 @@ const WILL_OR_HAVE = new RegExp(
   "i",
 );
 const SIMPLE_PAST = new RegExp(`\\bI\\s+(?:just |already )?(?:${DID})\\b`, "i");
+const DOING =
+  "sending|calling|phoning|messaging|texting|emailing|mailing|booking|reserving|ordering|buying|paying|posting|informing|notifying|reminding|forwarding|replying|scheduling";
+/** "I'm sending it", "I am booking the table": an action in progress. */
+const IN_PROGRESS = new RegExp(`\\bI(?:'m| am)\\s+(?:just |now )?(?:${DOING})\\b`, "i");
+/** "Let me send that": an offer to act, which chat cannot make good. "Let me think" and "let me know" are not. */
+const LET_ME = new RegExp(`\\blet me\\s+(?:${DOES})\\b`, "i");
 
 /**
  * True when a chat reply says the assistant did, or will do, something in the
- * world ("I've sent…", "I'll call…"). Chat has no tools, so such a reply is
- * false by construction. Measured on the real model: asked to message someone,
- * it replied "I've sent a birthday message to your brother." The caller must
- * hand the request to Hermes instead of speaking the reply.
+ * world ("I've sent…", "I'll call…", "I'm texting…", "Let me send…"). Chat has
+ * no tools, so such a reply is false by construction. Measured on the real
+ * model: asked to message someone, it replied "I've sent a birthday message to
+ * your brother." The caller must hand the request to Hermes instead of
+ * speaking the reply. Curly apostrophes are folded to straight ones first,
+ * because other models write "I’ve" with the typographic one.
  */
 export function claimsAnAction(reply: string): boolean {
-  return WILL_OR_HAVE.test(reply) || SIMPLE_PAST.test(reply);
+  const text = reply.replace(/[‘’]/g, "'");
+  return WILL_OR_HAVE.test(text) || SIMPLE_PAST.test(text) || IN_PROGRESS.test(text) || LET_ME.test(text);
 }
 
 /**
