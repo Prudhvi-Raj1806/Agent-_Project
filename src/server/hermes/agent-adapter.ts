@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { logger } from "@/server/logging/logger";
 import { HermesError } from "./errors";
 import { parseSseStream } from "./sse";
@@ -32,12 +33,14 @@ function parseAgentUsage(usage: unknown): HermesUsage | undefined {
  *   echo "API_SERVER_KEY=<openssl rand -hex 32>" >> <hermes config env-path>
  *   hermes gateway run   (not `hermes serve` — that's the separate dashboard backend)
  *
- * Verified against Hermes Agent 0.21.0's own source
- * (gateway/platforms/api_server.py, api_server_runs.py):
- *   POST   /v1/runs                       {input, model?, session_id?} -> {run_id}
- *   GET    /v1/runs/:id                   poll status
+ * Originally written against Hermes Agent 0.21.0's own source
+ * (gateway/platforms/api_server.py, api_server_runs.py); re-checked against
+ * Hermes's current official api-server docs (hermes-agent.nousresearch.com)
+ * on 2026-10-18 and corrected where they disagreed:
+ *   POST   /v1/runs                       {input, session_id?} -> {run_id, status}
+ *   GET    /v1/runs/:id                   poll status (session_id, model, output, usage, pending_controls)
  *   GET    /v1/runs/:id/events            SSE: {event, run_id, ...fields}
- *   POST   /v1/runs/:id/approval          {choice: "once"|"deny", request_id?, execution_generation}
+ *   POST   /v1/runs/:id/approval          {request_id, execution_generation, choice: "once"|"deny"}
  *   POST   /v1/runs/:id/stop
  *   GET    /v1/capabilities               feature detection (run_submission, run_status,
  *                                          run_events_sse, run_stop, run_approval)
@@ -50,9 +53,13 @@ function parseAgentUsage(usage: unknown): HermesUsage | undefined {
  * it off the `approval.request` frame that announces the pending approval and
  * echoes it straight back — it never invents or caches one across frames,
  * since a stale cached value would 409 just the same as a missing one.
+ * The docs confirm only `once`/`deny` as approval choices; `session`/`always`
+ * are unconfirmed and are left out of the type rather than sent blind.
  * `session_id` is a different, newer, *separately unverified* mechanism
  * (distinct from the `X-Hermes-Session-Id` header GitHub issue #84406 reports
- * as ignored) — sent defensively below, never relied on for continuity.
+ * as ignored) — sent defensively on submit (keyed to missionId), never relied
+ * on for continuity: prior-run context is still folded into the prompt on
+ * every resumed run, per §18's standing instruction.
  *
  * Hermes Agent's tool-approval events come from its own terminal/plugin
  * approval system (`tools/approval.py`), not a generic {toolName, input}
@@ -61,7 +68,9 @@ function parseAgentUsage(usage: unknown): HermesUsage | undefined {
  * JARVIS's generic HermesToolRequest as faithfully as the wire allows; when
  * Hermes omits `request_id` (single pending approval, FIFO resolution) the
  * decision is sent back without one rather than inventing an id Hermes
- * would not recognize.
+ * would not recognize. A missing id or generation is logged and the decision
+ * is still sent: dropping it would leave the run waiting on an approval that
+ * never arrives, and a denial must always reach Hermes.
  *
  * Separately, api_server also emits `tool.started`/`tool.completed` for
  * EVERY tool call — including ones its own approval system never flags
@@ -75,14 +84,72 @@ function parseAgentUsage(usage: unknown): HermesUsage | undefined {
  * approval system didn't already choose to gate. See
  * JARVIS_MASTER_MEMORY.md's Hermes capability-boundary section for the full
  * trust-boundary implication.
+ *
+ * 2026-11-10 hardening, from re-reading the current api-server docs (Hermes v0.22.5):
+ *   - Submit carries an `Idempotency-Key` (one fresh UUID per execute(), reused across
+ *     submit retries). Per the docs an identical retry replays the original run_id
+ *     instead of starting a second run, which is what makes retrying safe at all.
+ *   - 429 (concurrent-run cap) and 503 (`runtime_draining` / `storage_unavailable`)
+ *     are retried with backoff, honouring `Retry-After`.
+ *   - `run.interrupted` is a documented terminal event on the runs stream. Treated as
+ *     a retryable runtime failure, not a success and not a hang.
+ *   - `GET /v1/capabilities` is probed in checkHealth(); `features.run_approval ===
+ *     false` is surfaced as `approvalSupported: false`. Absence of the flag proves
+ *     nothing (the docs' feature list is partial), so that case stays `undefined`.
+ *   - Still UNVERIFIED against a live instance (architecture doc §11): the docs state
+ *     `approval.request` explicitly only for MCP trust-gate consent, and don't say a
+ *     general approval policy holds the tool before it runs. Do not treat this
+ *     adapter's approval path as proof that arbitrary tool calls are gated.
  */
+export interface HermesSubmitRetryOptions {
+  /** Total submit attempts, including the first. */
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_SUBMIT_RETRY: HermesSubmitRetryOptions = { maxAttempts: 4, baseDelayMs: 500, maxDelayMs: 8_000 };
+const MAX_RETRY_AFTER_MS = 30_000;
+
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortError());
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** `Retry-After` as delta-seconds (the only form worth honouring here); undefined if absent/unparseable. */
+function parseRetryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get("retry-after");
+  if (raw === null) return undefined;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
 export class HermesAgentAdapter implements HermesAdapter {
   readonly mode = "real" as const;
+  private readonly submitRetry: HermesSubmitRetryOptions;
 
   constructor(
     private readonly baseUrl: string,
-    private readonly apiKey: string
-  ) {}
+    private readonly apiKey: string,
+    options: { submitRetry?: Partial<HermesSubmitRetryOptions> } = {}
+  ) {
+    this.submitRetry = { ...DEFAULT_SUBMIT_RETRY, ...options.submitRetry };
+  }
 
   private headers(json: boolean): HeadersInit {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}` };
@@ -97,7 +164,8 @@ export class HermesAgentAdapter implements HermesAdapter {
       const latencyMs = Date.now() - startedAt;
       if (!res.ok) return { healthy: false, latencyMs };
       const body = (await res.json()) as { version?: string };
-      return { healthy: true, version: body.version, latencyMs };
+      const approvalSupported = await this.probeApprovalSupport();
+      return { healthy: true, version: body.version, latencyMs, approvalSupported };
     } catch (err) {
       logger.warn("hermes.agent.health.failed", {
         baseUrl: this.baseUrl,
@@ -107,55 +175,124 @@ export class HermesAgentAdapter implements HermesAdapter {
     }
   }
 
+  /** `GET /v1/capabilities` → whether the server advertises run approvals. undefined = unknown. */
+  private async probeApprovalSupport(): Promise<boolean | undefined> {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/capabilities`, {
+        headers: this.headers(false),
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!res.ok) return undefined;
+      const body = (await res.json()) as { features?: unknown };
+      const features = body.features;
+      // The docs' own feature list is partial, so a missing flag is "unknown", never "false".
+      if (Array.isArray(features)) return features.includes("run_approval") ? true : undefined;
+      if (features && typeof features === "object") {
+        const flag = (features as Record<string, unknown>).run_approval;
+        if (typeof flag === "boolean") {
+          if (!flag) logger.warn("hermes.agent.capabilities.approval_unsupported", { baseUrl: this.baseUrl });
+          return flag;
+        }
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Submits the run and returns its id. One Idempotency-Key per call, reused across
+   * every retry: Hermes replays the original run_id for an identical retry, so a
+   * retry after a lost response can't start a second run.
+   */
+  private async submitRun(input: HermesExecuteInput, prompt: string, signal: AbortSignal): Promise<string> {
+    // Deliberately NOT forwarding input.routing.modelId as `model`: that id is JARVIS's
+    // own internal routing label (e.g. "omniroute-auto"), not a model string Hermes's
+    // `_resolve_route()` can resolve — Hermes has no idea what JARVIS's OmniRouter calls
+    // things. Omitting `model` lets Hermes fall back to whatever it's locally configured
+    // to use (config.yaml `model.default`/`model.provider`), which is the real,
+    // resolvable model string. JARVIS's routing decision still governs *whether* the
+    // mission is allowed to run at all and is recorded for audit/UI — it just isn't a
+    // cross-system model identifier.
+    //
+    // session_id: missionId, sent defensively (see file header) — NOT a substitute
+    // for priorContext above, which is what actually carries history today.
+    const idempotencyKey = randomUUID();
+    const body = JSON.stringify({ input: prompt, session_id: input.missionId });
+    const { maxAttempts, baseDelayMs, maxDelayMs } = this.submitRetry;
+
+    for (let attempt = 1; ; attempt++) {
+      const backoffMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+
+      let res: Response;
+      try {
+        res = await fetch(`${this.baseUrl}/v1/runs`, {
+          method: "POST",
+          headers: { ...this.headers(true), "Idempotency-Key": idempotencyKey },
+          body,
+          signal,
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        if (attempt < maxAttempts) {
+          logger.warn("hermes.agent.submit.retry", { missionId: input.missionId, attempt, reason: "network" });
+          await sleep(backoffMs, signal);
+          continue;
+        }
+        throw new HermesError("NETWORK", `Hermes Agent submit failed: ${err instanceof Error ? err.message : String(err)}`, {
+          retryable: true,
+          cause: err,
+        });
+      }
+
+      if (res.status === 429 || res.status === 503) {
+        if (attempt < maxAttempts) {
+          logger.warn("hermes.agent.submit.retry", { missionId: input.missionId, attempt, reason: String(res.status) });
+          await sleep(parseRetryAfterMs(res) ?? backoffMs, signal);
+          continue;
+        }
+        throw new HermesError(
+          "RUNTIME",
+          res.status === 429
+            ? "Hermes Agent is at its concurrent-run limit (429)."
+            : "Hermes Agent is draining or its storage is unavailable (503).",
+          { retryable: true }
+        );
+      }
+      if (res.status === 401 || res.status === 403) {
+        throw new HermesError("AUTH", `Hermes Agent rejected the request (${res.status}) — check HERMES_AGENT_API_KEY.`, {
+          retryable: false,
+        });
+      }
+      if (res.status === 409) {
+        // permission_denied (session_id owned by another surface) or idempotency_key_conflict.
+        // Neither is fixed by retrying the same request.
+        throw new HermesError("RUNTIME", "Hermes Agent refused the run (409) — session_id owned by another surface, or idempotency key conflict.", {
+          retryable: false,
+        });
+      }
+      if (!res.ok) {
+        throw new HermesError("RUNTIME", `Hermes Agent rejected the run (${res.status})`, { retryable: res.status >= 500 });
+      }
+
+      const { run_id: runId } = (await res.json()) as { run_id: string };
+      return runId;
+    }
+  }
+
   async execute(input: HermesExecuteInput, callbacks: HermesExecuteCallbacks): Promise<HermesResult> {
-    // §18/§20: Hermes's /v1/runs session-continuity is unconfirmed (its own
-    // session_id field and the separately-ignored X-Hermes-Session-Id header
-    // don't compose with each other or with the approval path yet) — a
-    // resumed mission's prior progress must be folded into the prompt text
-    // itself, not left to session_id alone, or a resume silently restarts
-    // the objective from scratch.
-    const objective =
-      input.fromPercent && input.fromPercent > 0
+    // §18: a resumed mission's prior progress must be folded into the prompt text itself.
+    // The orchestrator supplies `priorContext` (including the last known state); when a
+    // caller supplies only `fromPercent`, fall back to a generic resume note so a resume
+    // can never silently restart the objective from scratch.
+    const prompt = input.priorContext
+      ? `${input.priorContext}\n\n---\n\n${input.objective}`
+      : input.fromPercent && input.fromPercent > 0
         ? `${input.objective}\n\n[Resuming a previously-paused mission at ${input.fromPercent}% progress. ` +
           `Continue the work already in progress — do not restart the objective from scratch.]`
         : input.objective;
 
-    let res: Response;
-    try {
-      // Deliberately NOT forwarding input.routing.modelId as `model`: that id is JARVIS's
-      // own internal routing label (e.g. "omniroute-auto"), not a model string Hermes's
-      // `_resolve_route()` can resolve — Hermes has no idea what JARVIS's OmniRouter calls
-      // things. Omitting `model` lets Hermes fall back to whatever it's locally configured
-      // to use (config.yaml `model.default`/`model.provider`), which is the real,
-      // resolvable model string. JARVIS's routing decision still governs *whether* the
-      // mission is allowed to run at all and is recorded for audit/UI — it just isn't a
-      // cross-system model identifier.
-      res = await fetch(`${this.baseUrl}/v1/runs`, {
-        method: "POST",
-        headers: this.headers(true),
-        // session_id sent defensively (§18 2026-10-18 addendum) — never relied
-        // on for continuity; the prompt-folding above is the real mechanism.
-        body: JSON.stringify({ input: objective, session_id: input.missionId }),
-        signal: callbacks.signal,
-      });
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") throw err;
-      throw new HermesError("NETWORK", `Hermes Agent submit failed: ${err instanceof Error ? err.message : String(err)}`, {
-        retryable: true,
-        cause: err,
-      });
-    }
-
-    if (res.status === 401 || res.status === 403) {
-      throw new HermesError("AUTH", `Hermes Agent rejected the request (${res.status}) — check HERMES_AGENT_API_KEY.`, {
-        retryable: false,
-      });
-    }
-    if (!res.ok) {
-      throw new HermesError("RUNTIME", `Hermes Agent rejected the run (${res.status})`, { retryable: res.status >= 500 });
-    }
-
-    const { run_id: runId } = (await res.json()) as { run_id: string };
+    const runId = await this.submitRun(input, prompt, callbacks.signal);
     logger.info("hermes.agent.run.started", { missionId: input.missionId, runId });
 
     try {
@@ -239,6 +376,12 @@ export class HermesAgentAdapter implements HermesAdapter {
           const executionGeneration = typeof event.execution_generation === "number" ? event.execution_generation : undefined;
           const toolName =
             typeof event.tool_name === "string" ? event.tool_name : typeof event.command === "string" ? "terminal" : "unknown";
+          if (requestId === undefined || executionGeneration === undefined) {
+            // The docs list both as required on the approval call. The decision is still sent
+            // with whatever the frame carried (see the header): Hermes may 409 it, but the
+            // answer, above all a denial, always reaches Hermes.
+            logger.warn("hermes.agent.approval.missing_fields", { runId, requestId, executionGeneration });
+          }
           const decision = callbacks.onToolRequest
             ? await callbacks.onToolRequest({ toolCallId: requestId ?? runId, toolName, input: event.command ?? event })
             : { decision: "deny" as const, reason: "No tool-request handler configured — denying by default." };
@@ -260,7 +403,12 @@ export class HermesAgentAdapter implements HermesAdapter {
             retryable: false,
           });
         case "run.cancelled":
-          throw new DOMException("Aborted", "AbortError");
+          throw abortError();
+        case "run.interrupted":
+          // Documented terminal event on the runs stream (e.g. server restart/drain). Not a
+          // success and not a user cancel — surface it so the mission fails visibly instead
+          // of hanging or being mistaken for a clean completion.
+          throw new HermesError("RUNTIME", "Hermes Agent run was interrupted before it finished.", { retryable: true });
         default:
           // message.delta/approval.responded/run.steered and anything newer — no action needed.
           break;
@@ -279,12 +427,12 @@ export class HermesAgentAdapter implements HermesAdapter {
     if (executionGeneration === undefined) {
       // §18/§20: a missing execution_generation 409s — this is the bug that
       // made every real approval fail before 2026-10-18. Logged loudly
-      // rather than sent half-formed, since a silent 409 here means the
-      // mission hangs waiting for an approval Hermes will never register.
+      // rather than hidden, since a silent 409 here means the mission hangs
+      // waiting for an approval Hermes will never register.
       logger.warn("hermes.agent.approval.missing_generation", { runId, requestId });
     }
     try {
-      await fetch(`${this.baseUrl}/v1/runs/${runId}/approval`, {
+      const res = await fetch(`${this.baseUrl}/v1/runs/${runId}/approval`, {
         method: "POST",
         headers: this.headers(true),
         body: JSON.stringify({
@@ -293,6 +441,11 @@ export class HermesAgentAdapter implements HermesAdapter {
           ...(executionGeneration !== undefined ? { execution_generation: executionGeneration } : {}),
         }),
       });
+      if (res.status === 409) {
+        // Stale generation — the run moved on before our decision arrived (e.g. a
+        // pause/cancel raced the approval). Not fatal to the overall run; log and move on.
+        logger.warn("hermes.agent.approval.stale_generation", { runId, requestId, executionGeneration });
+      }
     } catch (err) {
       logger.warn("hermes.agent.approval.failed", { runId, requestId, error: err instanceof Error ? err.message : String(err) });
     }

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS missions (
   result TEXT,
   verification TEXT,
   pending_tool_approval TEXT,
+  decision TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT
@@ -223,4 +224,7 @@ END;
  * safe to re-run against a database that already has the column (the
  * runner in client.ts swallows SQLite's "duplicate column name" error).
  */
-export const MIGRATIONS: string[] = [`ALTER TABLE missions ADD COLUMN pending_tool_approval TEXT`];
+export const MIGRATIONS: string[] = [
+  `ALTER TABLE missions ADD COLUMN pending_tool_approval TEXT`,
+  `ALTER TABLE missions ADD COLUMN decision TEXT`,
+];

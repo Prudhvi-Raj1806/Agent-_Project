@@ -23,6 +23,7 @@ import {
   setPendingToolApproval,
   transitionMission,
   updateMissionAgents,
+  updateMissionDecision,
   updateMissionProgress,
 } from "./service";
 import type { Mission, MissionAgentAssignment, MissionStatus, PendingToolApproval, TransitionOptions } from "./types";
@@ -211,28 +212,39 @@ function failMissionOnBudgetViolation(
  * §6/§17/§20: Laya as a non-blocking pre-classifier, not a gate. Fire-and-
  * forget — never awaited by `executePipeline`, so a slow or unreachable
  * Laya (the fallback adapter always reports "degraded") can never add
- * latency to, or block, a mission's actual execution. Nothing in the
- * pipeline consumes this yet (no routing decision reads `mission.classified`
- * back out) — it exists so the adapter boundary and its event are real and
- * observable before anything is built that depends on them, matching §17's
- * stated gap being closed one piece at a time.
+ * latency to, or block, a mission's actual execution. The judgment is
+ * recorded on the mission (`mission.decision`) and announced as a
+ * `mission.classified` event for routing/audit visibility; nothing in the
+ * pipeline consumes it yet, matching §17's stated gap being closed one piece
+ * at a time.
+ *
+ * Two earlier versions of this existed side by side: one awaited the call
+ * before starting the mission (adding up to Laya's timeout to every
+ * mission), one fired it and forgot (never persisting the result). This keeps
+ * the persistence of the first and the non-blocking behaviour of the second.
+ * Without a real Laya the fallback answers "unknown" at zero confidence,
+ * which is recorded as exactly that rather than as a guessed option.
  */
 function classifyMissionNonBlocking(missionId: string, objective: string): void {
   void getDecisionModelAdapter()
-    .classify({ state: objective, question: "urgency", schema: ["low", "medium", "high"] })
+    .classify({ state: objective, question: CLASSIFY_QUESTION, schema: CLASSIFY_OPTIONS })
     .then((result) => {
+      updateMissionDecision(missionId, { choice: result.decision, confidence: result.confidence });
       emitEvent({
         type: "mission.classified",
         missionId,
         source: "laya",
         status: "classified",
-        metadata: { question: "urgency", decision: result.decision, confidence: result.confidence },
+        metadata: { question: CLASSIFY_QUESTION, decision: result.decision, confidence: result.confidence },
       });
     })
     .catch((err) => {
       logger.warn("mission.classify.failed", { missionId, error: err instanceof Error ? err.message : String(err) });
     });
 }
+
+const CLASSIFY_QUESTION = "Can this mission proceed unattended, or does it need full planning?";
+const CLASSIFY_OPTIONS = ["unattended", "needs_planning"];
 
 const HERMES_AGENT_ID = "hermes";
 
@@ -461,6 +473,7 @@ export function startMission(missionId: string): void {
 async function beginMission(missionId: string): Promise<void> {
   const mission = getMission(missionId);
   if (!mission) return;
+
   transitionMission(missionId, "RUNNING");
   const generation = startNewRun(missionId);
   emitEvent({ type: "mission.started", missionId, source: "orchestrator", status: "running" });
@@ -607,6 +620,17 @@ async function executePipeline(missionId: string, fromPercent: number, generatio
   setHermesAgentStatus(missionId, "working");
   emitEvent({ type: "agent.started", missionId, agentId: "hermes", source: "hermes", status: "started" });
 
+  // Hermes has no verified cross-run resume primitive (architecture doc §18) — on a
+  // resume, fold what's known about the prior run into the prompt rather than relying
+  // on fromPercent alone, which the real agent-adapter doesn't forward. Without this,
+  // a paused-then-resumed mission silently restarts its objective from scratch.
+  const priorContext =
+    fromPercent > 0
+      ? `This mission was previously paused at ${fromPercent}% progress. Last known state: ${
+          mission.currentObjective ?? "no progress note recorded"
+        }. Resume from there rather than starting over.`
+      : undefined;
+
   let hermesResult: HermesResult;
   try {
     hermesResult = await adapter.execute(
@@ -614,6 +638,7 @@ async function executePipeline(missionId: string, fromPercent: number, generatio
         missionId,
         objective: mission.objective,
         routing,
+        priorContext,
         fromPercent,
         allowedTools: mission.allowedTools,
         forbiddenActions: mission.forbiddenActions,

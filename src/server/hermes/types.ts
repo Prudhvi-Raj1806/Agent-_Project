@@ -41,6 +41,11 @@ export interface HermesHealth {
   healthy: boolean;
   version?: string;
   latencyMs: number;
+  /**
+   * Whether the runtime advertises run approvals. `false` only when it says so
+   * explicitly; `undefined` means unknown (adapter couldn't tell), never "no".
+   */
+  approvalSupported?: boolean;
 }
 
 export type HermesToolEvent = HermesToolEventFrame;
@@ -51,6 +56,16 @@ export interface HermesExecuteInput {
   missionId: string;
   objective: string;
   routing: RoutingDecision;
+  /**
+   * Prior mission context to fold into the prompt text. Hermes has no
+   * verified cross-run resume primitive (architecture doc §18) — passing
+   * `fromPercent` alone silently restarts the objective from scratch on
+   * resume. `session_id` is a documented `POST /v1/runs` field and
+   * agent-adapter.ts passes it, but whether it actually restores history is
+   * unconfirmed against GitHub issue #84406 — so this text-folding stays
+   * mandatory until that is verified live.
+   */
+  priorContext?: string;
   /** Progress percent to resume from (0 for a fresh run). */
   fromPercent?: number;
   allowedTools?: string[];

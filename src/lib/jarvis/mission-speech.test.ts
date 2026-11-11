@@ -23,6 +23,7 @@ function mission(overrides: Partial<Mission>): Mission {
     result: { success: true, summary: "Your inbox has three new messages.", output: "", source: "hermes" },
     verification: null,
     pendingToolApproval: null,
+    decision: null,
     createdAt: "2026-11-10T00:00:00.000Z",
     updatedAt: "2026-11-10T00:00:00.000Z",
     completedAt: null,
