@@ -25,7 +25,7 @@ const evening = new Date(2026, 9, 12, 20, 0, 0);
 
 describe("buildBriefing", () => {
   it("greets by time of day and reports live numbers", () => {
-    const text = buildBriefing({ now: evening, system, schedule, weather });
+    const text = buildBriefing({ now: evening, ownerName: "Raj", system, schedule, weather });
     expect(text).toContain("Good evening");
     expect(text).toContain("CPU at 14 percent");
     expect(text).toContain("memory at 62 percent");
@@ -34,15 +34,23 @@ describe("buildBriefing", () => {
   });
 
   it("never invents a figure for a signal that is unavailable", () => {
-    const text = buildBriefing({ now: evening, system, schedule, weather });
+    const text = buildBriefing({ now: evening, ownerName: "Raj", system, schedule, weather });
     expect(text).not.toMatch(/GPU/i);
     expect(text).not.toMatch(/null|NaN|undefined/);
   });
 
   it("degrades cleanly when weather and schedule are missing", () => {
-    const text = buildBriefing({ now: new Date(2026, 9, 12, 8, 0, 0), system, schedule: [], weather: null });
+    const text = buildBriefing({ now: new Date(2026, 9, 12, 8, 0, 0), ownerName: "Raj", system, schedule: [], weather: null });
     expect(text).toContain("Good morning");
     expect(text).toContain("Nothing is scheduled");
     expect(text).not.toContain("degrees");
+  });
+});
+
+describe("buildBriefing owner name", () => {
+  it("greets the owner by the name it is given", () => {
+    const text = buildBriefing({ now: evening, ownerName: "Prudhvi", system, schedule, weather });
+    expect(text.startsWith("Good evening, Prudhvi. Systems online.")).toBe(true);
+    expect(text).not.toContain("Raj");
   });
 });

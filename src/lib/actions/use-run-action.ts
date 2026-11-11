@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 export interface ActionRunFeedback {
   actionId: string;
@@ -32,6 +32,7 @@ function clientOnlyHandlers(router: ReturnType<typeof useRouter>): Record<string
 }
 
 export function useRunAction() {
+  const brand = useBrand();
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<ActionRunFeedback | null>(null);
@@ -61,12 +62,12 @@ export function useRunAction() {
         const data = await res.json();
         showFeedback({ actionId: id, ok: Boolean(data.ok), message: data.message, detail: data.detail });
       } catch {
-        showFeedback({ actionId: id, ok: false, message: `Couldn't reach ${BRAND}.` });
+        showFeedback({ actionId: id, ok: false, message: `Couldn't reach ${brand}.` });
       } finally {
         setPendingId(null);
       }
     },
-    [showFeedback]
+    [showFeedback, brand]
   );
 
   const trigger = useCallback(

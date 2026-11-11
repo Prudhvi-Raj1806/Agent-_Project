@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { speakInBrowser } from "@/lib/jarvis/browser-voice";
+import { useOwnerName } from "@/lib/settings/use-brand";
 import { useSpotifyPlayer } from "@/lib/spotify/use-spotify-player";
 import { useClapDetector, type ClapDetectorStatus } from "./use-clap-detector";
 
@@ -41,10 +42,10 @@ function speak(text: string) {
     });
 }
 
-function greetingFor(date: Date): string {
+function greetingFor(date: Date, ownerName: string): string {
   const hour = date.getHours();
   const part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  return `${part}, Raj. Systems online.`;
+  return `${part}, ${ownerName}. Systems online.`;
 }
 
 /**
@@ -59,6 +60,7 @@ function greetingFor(date: Date): string {
 export function ClapDetectorProvider({ children }: { children: React.ReactNode }) {
   const [enabled, setEnabledState] = useState(false);
   const { play } = useSpotifyPlayer();
+  const ownerName = useOwnerName();
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -85,8 +87,8 @@ export function ClapDetectorProvider({ children }: { children: React.ReactNode }
   const runWelcomeRoutine = useCallback(() => {
     fetch("/api/actions/welcome-routine/run", { method: "POST" }).catch(() => {});
     void play();
-    speak(greetingFor(new Date()));
-  }, [play]);
+    speak(greetingFor(new Date(), ownerName));
+  }, [play, ownerName]);
 
   const status = useClapDetector(enabled, runWelcomeRoutine);
 

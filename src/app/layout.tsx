@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/shell/app-shell";
-import { BRAND } from "@/lib/brand";
+import { getBrand } from "@/server/settings/brand";
 import { getAllSettings } from "@/server/settings/store";
 import "./globals.css";
 
@@ -16,10 +16,13 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: BRAND,
-  description: "Personal AI operating environment",
-};
+/** The tab title follows the assistant's name setting. */
+export function generateMetadata(): Metadata {
+  return {
+    title: getBrand(),
+    description: "Personal AI operating environment",
+  };
+}
 
 // Settings come from the database on every request, so nothing here is prerendered.
 export const dynamic = "force-dynamic";

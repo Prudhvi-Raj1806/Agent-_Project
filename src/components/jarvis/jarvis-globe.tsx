@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { generateSphere, makeRotation, projectInto, surfaceRadius } from "@/lib/jarvis/particles";
 import type { JarvisVoiceState } from "@/lib/jarvis/use-jarvis-voice";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 const PARTICLE_COUNT = 5200;
 const ALPHA_BUCKETS = 8;
@@ -34,6 +34,7 @@ interface JarvisGlobeProps {
  * `lib/jarvis/particles` — this component only owns the draw loop.
  */
 export function JarvisGlobe({ levelRef, state, className }: JarvisGlobeProps) {
+  const brand = useBrand();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef(state);
 
@@ -197,7 +198,7 @@ export function JarvisGlobe({ levelRef, state, className }: JarvisGlobeProps) {
       ref={canvasRef}
       className={className}
       role="img"
-      aria-label={`${BRAND}, shown as a sphere of particles that moves while ${BRAND} speaks`}
+      aria-label={`${brand}, shown as a sphere of particles that moves while ${brand} speaks`}
     />
   );
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -11,6 +11,7 @@ function toDatetimeLocalValue(date: Date): string {
 }
 
 export function AddEventForm() {
+  const brand = useBrand();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -43,7 +44,7 @@ export function AddEventForm() {
       setOpen(false);
       router.refresh();
     } catch {
-      setError(`Couldn't reach ${BRAND}.`);
+      setError(`Couldn't reach ${brand}.`);
     } finally {
       setSubmitting(false);
     }

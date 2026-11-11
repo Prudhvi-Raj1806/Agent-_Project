@@ -12,7 +12,7 @@ import { isSpotifyConfigured } from "@/server/spotify/config";
 import { listPublicProviders } from "@/server/omnirouter/service";
 import { getVoicePasscodeSource } from "@/server/voice/passcode";
 import type { ProviderStatus, StatusTone } from "@/lib/data/types";
-import { BRAND } from "@/lib/brand";
+import { getBrand, getOwnerName } from "@/server/settings/brand";
 
 // Integration/connection state changes at runtime — read fresh per request.
 export const dynamic = "force-dynamic";
@@ -65,7 +65,7 @@ export default function SettingsPage() {
     <div className="mx-auto flex h-full max-w-3xl flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-8">
       <div className="shrink-0 pt-1 pb-1">
         <p className="text-xs font-medium tracking-wide text-text-dim uppercase">Settings</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Configure {BRAND}.</h1>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Configure {getBrand()}.</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">Profile, appearance, voice, and integrations.</p>
       </div>
 
@@ -73,10 +73,10 @@ export default function SettingsPage() {
         <SettingsSection icon={<User className="size-4 text-muted-foreground" />} title="Profile">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-full bg-accent-cyan/15 text-sm font-semibold text-accent-cyan">
-              R
+              {getOwnerName().charAt(0).toUpperCase()}
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground">Raj</p>
+              <p className="text-sm font-medium text-foreground">{getOwnerName()}</p>
               <p className="text-xs text-muted-foreground">Local owner account · single-user</p>
             </div>
           </div>
@@ -84,7 +84,7 @@ export default function SettingsPage() {
 
         <SettingsSection icon={<Moon className="size-4 text-muted-foreground" />} title="Appearance">
           <p className="text-sm text-muted-foreground">
-            Dark — {BRAND}&rsquo;s signature look. Additional themes aren&rsquo;t built yet.
+            Dark — {getBrand()}&rsquo;s signature look. Additional themes aren&rsquo;t built yet.
           </p>
         </SettingsSection>
 

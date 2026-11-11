@@ -12,7 +12,7 @@ import { mockWorkMoreActions, mockWorkTopActions } from "@/lib/data/mock-work";
 import { getUiRecentFiles } from "@/server/files/view";
 import { getUiSystemStatus } from "@/server/system/view";
 import { getWorkViewData } from "@/server/work/view";
-import { BRAND } from "@/lib/brand";
+import { getBrand, getOwnerName } from "@/server/settings/brand";
 
 // Mission/provider state changes continuously (missions run, quotas shift) — this
 // page must read it fresh per request, not bake one snapshot into the build's
@@ -29,14 +29,14 @@ export default async function WorkPage() {
         <div>
           <p className="text-xs font-medium tracking-wide text-text-dim uppercase">Work Mode</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
-            Let&rsquo;s build, Raj.
+            Let&rsquo;s build, {getOwnerName()}.
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">Deep work. Real progress.</p>
         </div>
         <blockquote className="hidden max-w-52 shrink-0 text-right text-xs italic leading-relaxed text-muted-foreground lg:block">
           &ldquo;Discipline turns ideas into reality.&rdquo;
           <footer className="mt-1.5 text-[10px] font-medium tracking-wide text-text-dim uppercase not-italic">
-            — {BRAND}
+            — {getBrand()}
           </footer>
         </blockquote>
       </div>

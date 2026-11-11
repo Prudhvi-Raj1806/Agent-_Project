@@ -16,10 +16,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BRAND } from "@/lib/brand";
+import { useBrand, useOwnerName } from "@/lib/settings/use-brand";
+
+/** The nav entry whose label is the assistant's name; render it with `useBrand()`, not the static label. */
+export const ASSISTANT_HREF = "/jarvis";
 
 export const primaryNav = [
   { href: "/", label: "Home", icon: House },
-  { href: "/jarvis", label: BRAND, icon: Orbit },
+  { href: ASSISTANT_HREF, label: BRAND, icon: Orbit },
   { href: "/work", label: "Work", icon: Layers },
   { href: "/focus", label: "Focus", icon: Focus },
 ];
@@ -33,6 +37,8 @@ export const secondaryNav = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const brand = useBrand();
+  const ownerName = useOwnerName();
 
   const navLinkClass = (isActive: boolean) =>
     cn(
@@ -44,16 +50,21 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-full w-44 shrink-0 flex-col border-r border-border bg-background md:flex">
-      <Link href="/" aria-label={BRAND} className="flex h-14 items-center gap-2.5 px-4">
+      <Link href="/" aria-label={brand} className="flex h-14 items-center gap-2.5 px-4">
         <Image src="/brand/veda-mark.png" alt="" width={420} height={216} priority unoptimized className="h-6 w-auto" />
-        <Image src="/brand/veda-wordmark.png" alt={BRAND} width={420} height={56} priority unoptimized className="h-2.5 w-auto" />
+        {/* The wordmark is artwork of the default name; any other name is set in type. */}
+        {brand === BRAND ? (
+          <Image src="/brand/veda-wordmark.png" alt={BRAND} width={420} height={56} priority unoptimized className="h-2.5 w-auto" />
+        ) : (
+          <span className="truncate text-sm font-semibold tracking-wide text-foreground">{brand}</span>
+        )}
       </Link>
 
       <nav className="flex flex-col gap-0.5 px-2.5 pt-2">
         {primaryNav.map((item) => (
           <Link key={item.href} href={item.href} className={navLinkClass(pathname === item.href)}>
             <item.icon className="size-4 shrink-0" strokeWidth={1.75} />
-            {item.label}
+            {item.href === ASSISTANT_HREF ? brand : item.label}
           </Link>
         ))}
       </nav>
@@ -62,7 +73,7 @@ export function Sidebar() {
         {secondaryNav.map((item) => (
           <Link key={item.href} href={item.href} className={navLinkClass(pathname === item.href)}>
             <item.icon className="size-4 shrink-0" strokeWidth={1.75} />
-            {item.label}
+            {item.href === ASSISTANT_HREF ? brand : item.label}
           </Link>
         ))}
       </nav>
@@ -76,10 +87,10 @@ export function Sidebar() {
 
       <div className="flex items-center gap-2.5 border-t border-border px-4 py-3">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface-3 text-xs font-medium text-foreground">
-          R
+          {ownerName.charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-sm text-foreground">Raj</p>
+          <p className="truncate text-sm text-foreground">{ownerName}</p>
           <p className="flex items-center gap-1 text-[11px] text-status-success">
             <span className="size-1.5 rounded-full bg-status-success" />
             Online

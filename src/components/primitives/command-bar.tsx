@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Mic, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 interface CommandBarProps {
   placeholder?: string;
@@ -12,9 +12,10 @@ interface CommandBarProps {
 }
 
 export function CommandBar({
-  placeholder = `Ask ${BRAND} anything...`,
+  placeholder,
   className,
 }: CommandBarProps) {
+  const brand = useBrand();
   const [value, setValue] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +72,7 @@ export function CommandBar({
         router.push("/work");
       }
     } catch {
-      setError(`Couldn't reach ${BRAND}.`);
+      setError(`Couldn't reach ${brand}.`);
       setStatus("error");
     }
   }
@@ -96,7 +97,7 @@ export function CommandBar({
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
-          placeholder={placeholder}
+          placeholder={placeholder ?? `Ask ${brand} anything...`}
           disabled={status === "submitting"}
           className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
         />

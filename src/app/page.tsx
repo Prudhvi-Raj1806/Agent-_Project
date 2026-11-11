@@ -1,3 +1,4 @@
+import { getOwnerName } from "@/server/settings/brand";
 import Image from "next/image";
 import { AmbientPanel } from "@/components/home/ambient-panel";
 import { ImaPanel } from "@/components/home/ima-panel";
@@ -50,7 +51,7 @@ export default async function HomePage() {
               {greeting}
             </p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
-              Raj.
+              {getOwnerName()}.
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
               A little progress every day adds up.

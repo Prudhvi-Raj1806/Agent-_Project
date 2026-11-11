@@ -24,7 +24,7 @@ import { useAppSettings } from "@/lib/settings/app-settings-context";
 import type { NewsItem, ScheduleItem, SystemStatus, WeatherCondition, WeatherStatus } from "@/lib/data/types";
 import type { Mission, PendingToolApproval } from "@/server/missions/types";
 import { cn } from "@/lib/utils";
-import { BRAND } from "@/lib/brand";
+import { useBrand, useOwnerName } from "@/lib/settings/use-brand";
 
 interface JarvisScreenProps {
   system: SystemStatus;
@@ -119,6 +119,8 @@ function handyChipValue(handy: VoiceStatus["handy"] | undefined): { value: strin
 
 export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenProps) {
   const { settings, update } = useAppSettings();
+  const brand = useBrand();
+  const ownerName = useOwnerName();
   // Phone (or any other device) vs this PC: Handy only exists on the PC, and replies can play here or there.
   const remote = useSyncExternalStore(
     subscribeNever,
@@ -144,7 +146,8 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
   const runRef = useRef<AbortController | null>(null);
   const autoSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const briefing = useMemo(() => () => buildBriefing({ now: new Date(), system, schedule, weather }), [
+  const briefing = useMemo(() => () => buildBriefing({ now: new Date(), ownerName, system, schedule, weather }), [
+    ownerName,
     system,
     schedule,
     weather,
@@ -376,7 +379,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
                     : "bg-status-idle",
               )}
             />
-            <span className="text-accent-cyan">{BRAND}</span>
+            <span className="text-accent-cyan">{brand}</span>
             <span className="text-text-dim">/</span>
             <span className="text-muted-foreground">{stateLabel[voice.state]}</span>
           </div>
@@ -446,8 +449,8 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onPaste={onPaste}
-              placeholder={micActive ? "Listening… speak, then press the mic again" : `Ask ${BRAND} to do something…`}
-              aria-label={`Request for ${BRAND}`}
+              placeholder={micActive ? "Listening… speak, then press the mic again" : `Ask ${brand} to do something…`}
+              aria-label={`Request for ${brand}`}
               autoComplete="off"
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-text-dim"
             />
@@ -464,7 +467,7 @@ export function JarvisScreen({ system, schedule, weather, news }: JarvisScreenPr
               <button
                 type="submit"
                 disabled={!draft.trim()}
-                aria-label={`Send to ${BRAND}`}
+                aria-label={`Send to ${brand}`}
                 className="flex size-7 max-md:size-11 items-center justify-center text-accent-cyan transition-colors hover:bg-surface-3 disabled:text-text-dim disabled:hover:bg-transparent"
               >
                 <SendHorizontal className="size-4" />

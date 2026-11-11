@@ -2,6 +2,8 @@ import type { ScheduleItem, SystemStatus, WeatherStatus } from "@/lib/data/types
 
 export interface BriefingInput {
   now: Date;
+  /** What the assistant calls its owner. */
+  ownerName: string;
   system: SystemStatus;
   schedule: ScheduleItem[];
   weather: WeatherStatus | null;
@@ -17,8 +19,8 @@ function greetingFor(date: Date): string {
  * actually has — a signal that is unavailable (null) is left out, never
  * spoken as zero.
  */
-export function buildBriefing({ now, system, schedule, weather }: BriefingInput): string {
-  const parts: string[] = [`${greetingFor(now)}, Raj. Systems online.`];
+export function buildBriefing({ now, ownerName, system, schedule, weather }: BriefingInput): string {
+  const parts: string[] = [`${greetingFor(now)}, ${ownerName}. Systems online.`];
 
   const percentOf = (kind: string) => system.metrics.find((m) => m.kind === kind)?.percent ?? null;
   const cpu = percentOf("cpu");

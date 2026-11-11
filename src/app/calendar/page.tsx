@@ -1,3 +1,4 @@
+import { getOwnerName } from "@/server/settings/brand";
 import { CalendarClock } from "lucide-react";
 import { AddEventForm } from "@/components/calendar/add-event-form";
 import { DeleteEventButton } from "@/components/calendar/delete-event-button";
@@ -26,7 +27,7 @@ export default async function CalendarPage() {
       <div className="flex shrink-0 items-start justify-between gap-6 pt-1 pb-1">
         <div>
           <p className="text-xs font-medium tracking-wide text-text-dim uppercase">Calendar</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Your schedule, Raj.</h1>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Your schedule, {getOwnerName()}.</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">Everything ahead, in one list.</p>
         </div>
         <AddEventForm />

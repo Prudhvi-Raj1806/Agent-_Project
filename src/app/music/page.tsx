@@ -1,5 +1,5 @@
 import { MusicView } from "@/components/music/music-view";
-import { BRAND } from "@/lib/brand";
+import { getBrand, getOwnerName } from "@/server/settings/brand";
 
 export default function MusicPage() {
   return (
@@ -7,13 +7,13 @@ export default function MusicPage() {
       <div className="flex shrink-0 items-start justify-between gap-6 pt-1 pb-1">
         <div>
           <p className="text-xs font-medium tracking-wide text-text-dim uppercase">Music</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Now Playing, Raj.</h1>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">Now Playing, {getOwnerName()}.</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">Full playback, right where you left it.</p>
         </div>
         <blockquote className="hidden max-w-52 shrink-0 text-right text-xs italic leading-relaxed text-muted-foreground lg:block">
           &ldquo;The right track clears the static.&rdquo;
           <footer className="mt-1.5 text-[10px] font-medium tracking-wide text-text-dim uppercase not-italic">
-            — {BRAND}
+            — {getBrand()}
           </footer>
         </blockquote>
       </div>

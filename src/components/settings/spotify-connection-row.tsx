@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/primitives/confirm-dialog";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { useConfirm } from "@/lib/use-confirm";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 export function SpotifyConnectionRow({ configured, connected }: { configured: boolean; connected: boolean }) {
+  const brand = useBrand();
   const router = useRouter();
   const { confirm, dialogProps } = useConfirm();
 
@@ -30,7 +31,7 @@ export function SpotifyConnectionRow({ configured, connected }: { configured: bo
           onClick={() =>
             confirm({
               title: "Disconnect Spotify?",
-              description: `${BRAND} will lose playback control until you reconnect your account.`,
+              description: `${brand} will lose playback control until you reconnect your account.`,
               confirmLabel: "Disconnect",
               onConfirm: disconnect,
             })

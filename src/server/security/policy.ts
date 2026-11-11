@@ -1,3 +1,4 @@
+import { getOwnerName } from "@/server/settings/brand";
 import type { Actor, PolicyDecision } from "./types";
 
 /**
@@ -7,7 +8,7 @@ import type { Actor, PolicyDecision } from "./types";
  */
 
 export function getOwnerActor(): Actor {
-  return { id: "owner", kind: "user", name: process.env.JARVIS_OWNER_NAME ?? "Raj" };
+  return { id: "owner", kind: "user", name: getOwnerName() };
 }
 
 export function getSystemActor(): Actor {

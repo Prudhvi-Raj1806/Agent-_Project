@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSpotifyDevice } from "./player-context";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 export type { SpotifyStatus } from "./player-context";
 
@@ -14,7 +14,8 @@ export type { SpotifyStatus } from "./player-context";
  * longer starts a duplicate 5s polling loop per mount.
  */
 export function useSpotifyPlayer() {
-  const { deviceId, status, nowPlaying, refresh } = useSpotifyDevice();
+  const brand = useBrand();
+  const { deviceId, deviceName, status, nowPlaying, refresh } = useSpotifyDevice();
   const [actionError, setActionError] = useState<string | null>(null);
 
   const runAction = useCallback(
@@ -34,11 +35,11 @@ export function useSpotifyPlayer() {
         setTimeout(refresh, 400);
         return { ok: true, status: res.status };
       } catch {
-        setActionError(`Couldn't reach ${BRAND}.`);
+        setActionError(`Couldn't reach ${brand}.`);
         return { ok: false, status: 0 };
       }
     },
-    [refresh]
+    [refresh, brand]
   );
 
   const play = useCallback(async () => {
@@ -56,6 +57,7 @@ export function useSpotifyPlayer() {
   return {
     status,
     nowPlaying,
+    deviceName,
     actionError,
     play,
     pause: () => runAction("pause"),

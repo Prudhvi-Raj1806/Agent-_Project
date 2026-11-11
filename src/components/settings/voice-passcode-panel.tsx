@@ -6,11 +6,12 @@ import { Eye, EyeOff, Mic, ShieldCheck, ShieldOff } from "lucide-react";
 import { ConfirmDialog } from "@/components/primitives/confirm-dialog";
 import { StatusIndicator } from "@/components/primitives/status-indicator";
 import { useConfirm } from "@/lib/use-confirm";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 type PasscodeSource = "settings" | "env" | "none";
 
 export function VoicePasscodePanel({ source }: { source: PasscodeSource }) {
+  const brand = useBrand();
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [reveal, setReveal] = useState(false);
@@ -45,7 +46,7 @@ export function VoicePasscodePanel({ source }: { source: PasscodeSource }) {
       setEditing(false);
       router.refresh();
     } catch {
-      setError(`Couldn't reach ${BRAND}.`);
+      setError(`Couldn't reach ${brand}.`);
     } finally {
       setPending(false);
     }

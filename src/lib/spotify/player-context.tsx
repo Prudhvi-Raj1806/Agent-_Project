@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { SpotifyNowPlaying } from "@/server/spotify/types";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 export type SpotifyStatus = "loading" | "not-configured" | "not-connected" | "connected";
 
@@ -13,6 +13,8 @@ const IDLE_POLL_MS = 60_000;
 interface SpotifyPlayerContextValue {
   /** The browser's own Spotify Connect device id, once the Web Playback SDK is ready. Null until then. */
   deviceId: string | null;
+  /** The name the player registered with Spotify (the assistant's name at that moment). Null until it is ready. */
+  deviceName: string | null;
   status: SpotifyStatus;
   nowPlaying: SpotifyNowPlaying | null;
   /** Re-fetches status + now-playing immediately (e.g. right after an action, so the UI doesn't wait for the next tick). */
@@ -21,6 +23,7 @@ interface SpotifyPlayerContextValue {
 
 const SpotifyPlayerContext = createContext<SpotifyPlayerContextValue>({
   deviceId: null,
+  deviceName: null,
   status: "loading",
   nowPlaying: null,
   refresh: async () => {},
@@ -70,6 +73,14 @@ const SDK_SRC = "https://sdk.scdn.co/spotify-player.js";
  */
 export function SpotifyPlayerProvider({ children }: { children: React.ReactNode }) {
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [deviceName, setDeviceName] = useState<string | null>(null);
+  // A rename must not tear the player down, so the SDK effect reads the name from a ref.
+  // Spotify shows the new name the next time the player registers (the next page load).
+  const brand = useBrand();
+  const brandRef = useRef(brand);
+  useEffect(() => {
+    brandRef.current = brand;
+  }, [brand]);
   const [status, setStatus] = useState<SpotifyStatus>("loading");
   const [nowPlaying, setNowPlaying] = useState<SpotifyNowPlaying | null>(null);
   const statusRef = useRef<SpotifyStatus>("loading");
@@ -171,8 +182,9 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
 
       window.onSpotifyWebPlaybackSDKReady = () => {
         if (cancelled || !window.Spotify) return;
+        const registeredName = brandRef.current;
         player = new window.Spotify.Player({
-          name: BRAND,
+          name: registeredName,
           getOAuthToken: (callback) => {
             fetch("/api/spotify/player-token")
               .then((res) => res.json())
@@ -185,6 +197,7 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
         player.addListener("ready", (payload) => {
           const { device_id } = payload as { device_id: string };
           setDeviceId(device_id);
+          setDeviceName(registeredName);
         });
         player.addListener("not_ready", () => setDeviceId(null));
 
@@ -201,7 +214,7 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
   }, []);
 
   return (
-    <SpotifyPlayerContext.Provider value={{ deviceId, status, nowPlaying, refresh }}>
+    <SpotifyPlayerContext.Provider value={{ deviceId, deviceName, status, nowPlaying, refresh }}>
       {children}
     </SpotifyPlayerContext.Provider>
   );

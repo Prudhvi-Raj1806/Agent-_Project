@@ -7,9 +7,10 @@ import { MissionCard } from "@/components/work/mission-card";
 import { MissionInspector } from "@/components/work/mission-inspector";
 import type { Mission } from "@/lib/data/types";
 import { useLiveMissions } from "@/lib/work/use-live-missions";
-import { BRAND } from "@/lib/brand";
+import { useBrand } from "@/lib/settings/use-brand";
 
 export function ActiveMissionsPanel({ missions: initialMissions }: { missions: Mission[] }) {
+  const brand = useBrand();
   const missions = useLiveMissions(initialMissions);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
 
@@ -22,7 +23,7 @@ export function ActiveMissionsPanel({ missions: initialMissions }: { missions: M
           </span>
           <h3 className="text-sm font-medium text-foreground">Active Missions</h3>
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">What {BRAND} is working on.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">What {brand} is working on.</p>
       </div>
 
       {missions.length === 0 ? (

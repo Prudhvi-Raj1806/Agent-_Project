@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Settings } from "lucide-react";
-import { primaryNav, secondaryNav } from "@/components/shell/sidebar";
+import { ASSISTANT_HREF, primaryNav, secondaryNav } from "@/components/shell/sidebar";
+import { useBrand } from "@/lib/settings/use-brand";
 import { cn } from "@/lib/utils";
 
 const items = [...primaryNav, ...secondaryNav, { href: "/settings", label: "Settings", icon: Settings }];
@@ -11,6 +12,7 @@ const items = [...primaryNav, ...secondaryNav, { href: "/settings", label: "Sett
 /** The phone's navigation: every destination in one scrollable row, each tap target at least 56 px tall. Hidden from `md` up, where the sidebar takes over. */
 export function BottomNav() {
   const pathname = usePathname();
+  const brand = useBrand();
   return (
     <nav
       aria-label="Main"
@@ -29,7 +31,7 @@ export function BottomNav() {
             )}
           >
             <item.icon className="size-5 shrink-0" strokeWidth={1.75} />
-            {item.label}
+            {item.href === ASSISTANT_HREF ? brand : item.label}
           </Link>
         );
       })}
