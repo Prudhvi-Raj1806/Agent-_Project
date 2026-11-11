@@ -29,7 +29,7 @@ export interface ClassifyResult {
 }
 
 export interface DecisionModelAdapter {
-  readonly mode: "laya" | "fallback";
+  readonly mode: "laya" | "fallback" | "ollama";
   classify(input: ClassifyInput): Promise<ClassifyResult>;
   health(): Promise<DecisionModelHealth>;
 }

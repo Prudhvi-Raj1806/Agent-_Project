@@ -1,0 +1,93 @@
+[
+  { "text": "do you know what time it is", "expect": "time.read" },
+  { "text": "which day of the week is it", "expect": "time.read" },
+  { "text": "tell me today's date", "expect": "time.read" },
+
+  { "text": "what do I have on today", "expect": "schedule.read" },
+  { "text": "any meetings today", "expect": "schedule.read" },
+  { "text": "what's my schedule looking like", "expect": "schedule.read" },
+
+  { "text": "how much ram am I using", "expect": "system.read" },
+  { "text": "is the computer under heavy load", "expect": "system.read" },
+  { "text": "check the processor usage", "expect": "system.read" },
+
+  { "text": "give me my briefing", "expect": "briefing" },
+  { "text": "brief me on the day", "expect": "briefing" },
+  { "text": "what's my morning rundown", "expect": "briefing" },
+
+  { "text": "launch vs code", "expect": "action.open-vscode" },
+  { "text": "open my code editor", "expect": "action.open-vscode" },
+  { "text": "start visual studio code", "expect": "action.open-vscode" },
+
+  { "text": "launch obsidian", "expect": "action.open-obsidian" },
+  { "text": "open my obsidian vault", "expect": "action.open-obsidian" },
+  { "text": "bring up obsidian", "expect": "action.open-obsidian" },
+
+  { "text": "I want to write a note", "expect": "action.take-notes" },
+  { "text": "open my notes", "expect": "action.take-notes" },
+  { "text": "let me jot something down", "expect": "action.take-notes" },
+
+  { "text": "grab a screenshot", "expect": "action.take-screenshot" },
+  { "text": "capture my screen", "expect": "action.take-screenshot" },
+  { "text": "screenshot this", "expect": "action.take-screenshot" },
+
+  { "text": "run the welcome routine", "expect": "action.welcome-routine" },
+  { "text": "kick off my morning setup", "expect": "action.welcome-routine" },
+  { "text": "do the welcome thing", "expect": "action.welcome-routine" },
+
+  { "text": "take control of my computer", "expect": "control-computer" },
+  { "text": "control my screen for me", "expect": "control-computer" },
+  { "text": "use my mouse and keyboard for me", "expect": "control-computer" },
+
+  { "text": "what's the weather like", "expect": "weather.read" },
+  { "text": "do I need an umbrella", "expect": "weather.read" },
+  { "text": "how hot is it outside", "expect": "weather.read" },
+
+  { "text": "put on some music", "expect": "music.play" },
+  { "text": "resume the music", "expect": "music.play" },
+  { "text": "start playing spotify", "expect": "music.play" },
+
+  { "text": "stop the music", "expect": "music.pause" },
+  { "text": "pause spotify", "expect": "music.pause" },
+  { "text": "hold the music for a second", "expect": "music.pause" },
+
+  { "text": "skip this song", "expect": "music.next" },
+  { "text": "next track", "expect": "music.next" },
+  { "text": "play the next one", "expect": "music.next" },
+
+  { "text": "go back a song", "expect": "music.previous" },
+  { "text": "previous track", "expect": "music.previous" },
+  { "text": "play the last song again", "expect": "music.previous" },
+
+  { "text": "what song is this", "expect": "music.now-playing" },
+  { "text": "what's playing right now", "expect": "music.now-playing" },
+  { "text": "who sings this", "expect": "music.now-playing" },
+
+  { "text": "tell me something funny", "expect": "chat" },
+  { "text": "what's the capital of france", "expect": "chat" },
+  { "text": "how do you spell necessary", "expect": "chat" },
+  { "text": "what's 15 percent of 80", "expect": "chat" },
+  { "text": "give me a motivational quote", "expect": "chat" },
+  { "text": "explain what an api is in one sentence", "expect": "chat" },
+  { "text": "how are you doing", "expect": "chat" },
+  { "text": "what's a good name for a cat", "expect": "chat" },
+  { "text": "who wrote hamlet", "expect": "chat" },
+  { "text": "thanks, that helps", "expect": "chat" },
+
+  { "text": "send an email to my manager saying I'll be late", "expect": "hermes" },
+  { "text": "find flights to goa next weekend", "expect": "hermes" },
+  { "text": "research the best noise cancelling headphones and summarize", "expect": "hermes" },
+  { "text": "book a dentist appointment for friday", "expect": "hermes" },
+  { "text": "check my inbox for anything urgent", "expect": "hermes" },
+  { "text": "look up the latest news on nvidia", "expect": "hermes" },
+  { "text": "create a spreadsheet of my expenses", "expect": "hermes" },
+  { "text": "order a pizza for dinner", "expect": "hermes" },
+  { "text": "summarize the pdf in my downloads folder", "expect": "hermes" },
+  { "text": "post an update on linkedin about my project", "expect": "hermes" },
+  { "text": "what's the bitcoin price right now", "expect": "hermes" },
+  { "text": "rename all the files in my photos folder by date", "expect": "hermes" },
+
+  { "text": "the uh", "expect": "unclear" },
+  { "text": "so then and", "expect": "unclear" },
+  { "text": "blah fjdk qwop", "expect": "unclear" }
+]

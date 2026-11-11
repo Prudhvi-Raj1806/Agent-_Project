@@ -10,7 +10,8 @@
     "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File launcher/stop-veda.ps1",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "brain:eval": "vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
