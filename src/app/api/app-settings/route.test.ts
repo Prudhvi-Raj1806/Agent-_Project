@@ -25,6 +25,8 @@ describe("/api/app-settings", () => {
     expect(await res.json()).toEqual({
       "persona.name": "Veda",
       "persona.ownerName": "Raj",
+      "brain.enabled": true,
+      "brain.model": "phi4-mini",
       "remote.enabled": false,
       "remote.allowedLogins": [],
       "remote.tailnetHost": "",

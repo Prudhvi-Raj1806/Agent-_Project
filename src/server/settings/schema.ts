@@ -10,6 +10,8 @@ import { BRAND } from "@/lib/brand";
 export interface SettingsShape {
   "persona.name": string;
   "persona.ownerName": string;
+  "brain.enabled": boolean;
+  "brain.model": string;
   "remote.enabled": boolean;
   "remote.allowedLogins": string[];
   "remote.tailnetHost": string;
@@ -92,6 +94,17 @@ function envOwnerName(): string {
   return PERSON_NAME.test(configured) ? configured : FALLBACK_OWNER;
 }
 
+/** An Ollama model name such as phi4-mini, gemma4:latest or hf.co/user/model. It goes into a JSON body, never a shell. */
+const MODEL_NAME = /^[a-z0-9][a-z0-9._:/-]{0,63}$/;
+const DEFAULT_BRAIN_MODEL = "phi4-mini";
+
+function parseModelName(value: unknown): string {
+  if (typeof value !== "string") throw new Error("Expected text.");
+  const model = value.trim();
+  if (!MODEL_NAME.test(model)) throw new Error("A model name looks like phi4-mini or gemma4:latest.");
+  return model;
+}
+
 /** A Voice Studio profile id, profile name or preset. Letters, digits, spaces and . _ : - only. */
 const VOICE_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:-]{0,63}$/u;
 const FALLBACK_VOICE = "alloy";
@@ -133,6 +146,8 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<SettingsShape[K]> } =
     },
     parse: parsePersonName,
   },
+  "brain.enabled": { default: true, parse: parseBoolean },
+  "brain.model": { default: DEFAULT_BRAIN_MODEL, parse: parseModelName },
   "remote.enabled": { default: false, parse: parseBoolean },
   "remote.allowedLogins": { default: [], parse: parseLogins },
   "remote.tailnetHost": { default: "", parse: parseTailnetHost },

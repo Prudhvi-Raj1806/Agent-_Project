@@ -33,7 +33,13 @@ export type EventType =
   | "security.approval_required"
   | "memory.created"
   | "memory.updated"
-  | "knowledge.updated";
+  | "knowledge.updated"
+  // The mini brain (src/server/brain): decisions made before, or instead of, a mission.
+  | "brain.routed"
+  | "brain.skill.completed"
+  | "brain.skill.failed"
+  | "brain.handoff"
+  | "brain.unavailable";
 
 /**
  * Operational event — observable system activity, not private model

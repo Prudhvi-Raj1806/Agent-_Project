@@ -11,6 +11,8 @@ describe("settings store", () => {
     expect(getAllSettings()).toEqual({
       "persona.name": "Veda",
       "persona.ownerName": "Raj",
+      "brain.enabled": true,
+      "brain.model": "phi4-mini",
       "remote.enabled": false,
       "remote.allowedLogins": [],
       "remote.tailnetHost": "",
@@ -90,6 +92,26 @@ describe("settings store", () => {
       vi.stubEnv("JARVIS_OWNER_NAME", "Prudhvi");
       setSettings({ "persona.ownerName": "Boss" });
       expect(getSetting("persona.ownerName")).toBe("Boss");
+    });
+  });
+
+  describe("mini brain settings", () => {
+    it("stores the switch as a boolean only", () => {
+      setSettings({ "brain.enabled": false });
+      expect(getSetting("brain.enabled")).toBe(false);
+      expect(() => setSettings({ "brain.enabled": "off" as never })).toThrow();
+    });
+
+    it("accepts an Ollama model name, with or without a tag", () => {
+      setSettings({ "brain.model": " gemma4:latest " });
+      expect(getSetting("brain.model")).toBe("gemma4:latest");
+      setSettings({ "brain.model": "hf.co/user/model-q4_k_m" });
+      expect(getSetting("brain.model")).toBe("hf.co/user/model-q4_k_m");
+    });
+
+    it.each(["", "   ", "Phi4", "a b", "../x", "phi4;rm", "a".repeat(65), 7])("refuses the model name %j", (bad) => {
+      expect(() => setSettings({ "brain.model": bad as never })).toThrow();
+      expect(getSetting("brain.model")).toBe("phi4-mini");
     });
   });
 
