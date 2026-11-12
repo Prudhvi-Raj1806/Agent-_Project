@@ -1,6 +1,7 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { launchDetached } from "@/server/services/process";
 
 /**
  * Bridge to Handy (https://handy.computer), the local push-to-talk dictation
@@ -42,15 +43,7 @@ export const defaultHandyDeps: HandyDeps = {
   env: process.env,
   exists: existsSync,
   isProcessRunning: (imageName) => processRunning(process.platform, imageName),
-  spawnDetached: (exe, args) =>
-    new Promise((resolve, reject) => {
-      const child = spawn(exe, args, { detached: true, stdio: "ignore", windowsHide: true });
-      child.once("error", reject);
-      child.once("spawn", () => {
-        child.unref();
-        resolve();
-      });
-    }),
+  spawnDetached: launchDetached,
 };
 
 /** HANDY_PATH wins; otherwise the default per-user Windows install. Null if nothing is there. */

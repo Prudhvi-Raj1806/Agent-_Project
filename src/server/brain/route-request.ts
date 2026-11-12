@@ -3,7 +3,8 @@ import type { BrainSkill } from "./skills/types";
 import { ModelTimeoutError, type ModelClient } from "./types";
 
 const CHECK_MAX_TOKENS = 20;
-const CHECK_TIMEOUT_MS = 5_000;
+/** A timeout here hands the request to Hermes, so it is kept above the slow first minute after launch but below the router's. */
+const CHECK_TIMEOUT_MS = 8_000;
 
 /**
  * The second look at anything the router called "chat".

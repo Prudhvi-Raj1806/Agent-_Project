@@ -7,7 +7,8 @@ export const CHOICE_HERMES = "hermes";
 export const CHOICE_UNCLEAR = "unclear";
 
 const MAX_TOKENS = 30;
-const TIMEOUT_MS = 5_000;
+/** Generous on purpose: for about two minutes after launch Hermes, Ollama and Kokoro all load at once and the first answer is slow. */
+const TIMEOUT_MS = 12_000;
 
 type Listed = Pick<BrainSkill, "id" | "description" | "examples">;
 

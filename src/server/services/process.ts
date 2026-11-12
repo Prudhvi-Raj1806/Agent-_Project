@@ -4,11 +4,45 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-/** Starts a program detached so it keeps running after this server stops. Fixed file and arguments only. */
+/** One argument as the Windows command line wants it: whole, with inner quotes escaped. */
+function windowsArg(arg: string): string {
+  return arg === "" || /[\s"]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg;
+}
+
+const psQuote = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
+/**
+ * The command that starts `file` from a short-lived PowerShell instead of from this server.
+ * `taskkill /T` (how the launcher stops the app) follows parent ids, so a service started
+ * directly by the server dies with it; one started by a launcher that has already exited
+ * has no parent left to follow and keeps running.
+ */
+export function detachedLaunch(file: string, args: string[]): { file: string; args: string[] } {
+  const argumentList = args.length > 0 ? ` -ArgumentList ${psQuote(args.map(windowsArg).join(" "))}` : "";
+  return {
+    file: "powershell.exe",
+    args: ["-NoProfile", "-NonInteractive", "-Command", `Start-Process -FilePath ${psQuote(file)}${argumentList} -WindowStyle Hidden`],
+  };
+}
+
+/** Starts a program that keeps running after this server stops. Resolves once it has been handed off. Fixed file and arguments only. */
+export function launchDetached(file: string, args: string[]): Promise<void> {
+  const windows = process.platform === "win32";
+  const launch = windows ? detachedLaunch(file, args) : { file, args };
+  return new Promise((resolve, reject) => {
+    // The PowerShell launcher is deliberately not `detached`: started without a console it never starts the program. It exits on its own.
+    const child = spawn(launch.file, launch.args, { detached: !windows, stdio: "ignore", windowsHide: true });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
+/** Fire and forget: a program that did not start shows up as "not running" in the next status check. */
 export function spawnDetached(file: string, args: string[]): void {
-  const child = spawn(file, args, { detached: true, stdio: "ignore", windowsHide: true });
-  child.on("error", () => {});
-  child.unref();
+  launchDetached(file, args).catch(() => {});
 }
 
 /** Running processes with this image name, with their command lines. Windows only. */

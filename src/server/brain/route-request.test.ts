@@ -133,7 +133,7 @@ describe("routeRequest", () => {
       required: ["answer"],
     });
     expect(check.maxTokens).toBe(20);
-    expect(check.timeoutMs).toBe(5000);
+    expect(check.timeoutMs).toBe(8000);
     // A standalone question, not a continuation of the router's conversation (that was measured to be worse).
     expect(check.messages).toHaveLength(2);
     expect(check.messages[0].role).toBe("system");

@@ -52,13 +52,13 @@ describe("router prompt", () => {
 });
 
 describe("router", () => {
-  it("asks for JSON limited to the choice ids, with 30 tokens and 5 seconds", async () => {
+  it("asks for JSON limited to the choice ids, with 30 tokens and 12 seconds", async () => {
     const { client, seen } = fakeClient('{"choice":"time.read"}');
     await classify(client, "what time is it");
 
     expect(seen[0].model).toBe("phi4-mini");
     expect(seen[0].maxTokens).toBe(30);
-    expect(seen[0].timeoutMs).toBe(5000);
+    expect(seen[0].timeoutMs).toBe(12000);
     expect(seen[0].format).toEqual({
       type: "object",
       properties: { choice: { type: "string", enum: ids } },

@@ -19,7 +19,7 @@
 - The normal test suite never calls a real Ollama; every model call goes through an injected `ModelClient`. Only `npm run brain:eval` talks to the real model.
 - Request text never reaches a shell, a file path, or a tool name. The model's answer is limited to the list of choice ids.
 - No skill in this version is risky, and skills take no arguments.
-- Limits from the spec: request text 1 to 2,000 characters; history at most 6 messages of at most 1,000 characters; router at most 30 tokens and 5 s; chat at most 120 tokens and 15 s; `keep_alive` 30 minutes; persona from `SOUL.md` only when it is at most 1,500 characters; Ollama start wait 20 s; "One moment." after 2.5 s; command-bar reply shown 8 s.
+- Limits from the spec: request text 1 to 2,000 characters; history at most 6 messages of at most 1,000 characters; router at most 30 tokens and 12 s (raised from 5 s on 2026-11-12: launch-time load made 5 s time out); talk-or-act check 8 s; chat at most 120 tokens and 15 s; `keep_alive` 30 minutes; persona from `SOUL.md` only when it is at most 1,500 characters; Ollama start wait 20 s; "One moment." after 2.5 s; command-bar reply shown 8 s.
 - Spoken copy in this plan is exact. Do not reword it.
 - UI work follows the existing settings panels and the `/impeccable` skill; no new visual language.
 

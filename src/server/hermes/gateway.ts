@@ -1,6 +1,7 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
+import { launchDetached } from "@/server/services/process";
 import { hermesHome } from "./config";
 import { getHermesAdapter } from "./factory";
 import type { HermesHealth } from "./types";
@@ -55,12 +56,10 @@ async function waitForHealthy(timeoutMs: number): Promise<HermesHealth> {
   return last;
 }
 
-/** Starts `hermes gateway run` detached so it outlives this server. Windows only. */
+/** Starts `hermes gateway run` detached so it outlives this server, even when the app is stopped. Windows only. */
 export async function startHermesGateway(): Promise<void> {
   if (process.platform !== "win32") throw new Error("Restarting Hermes from the dashboard is only supported on Windows.");
-  const child = spawn(hermesBinary(), ["gateway", "run"], { detached: true, stdio: "ignore", windowsHide: true });
-  child.on("error", () => {});
-  child.unref();
+  await launchDetached(hermesBinary(), ["gateway", "run"]);
 }
 
 /** Stops any running gateway, starts a fresh one, and waits for it to report healthy. */
